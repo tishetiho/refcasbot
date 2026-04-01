@@ -70,6 +70,17 @@ async def get_global_stats():
             return (res[0] or 0), (res[1] or 0)
 
 # --- ПРОВЕРКА ПОДПИСКИ ---
+async def is_subscribed_with_alert(message: types.Message, user_id: int):
+    if not await is_subscribed(user_id):
+        # Если это группа, даем ссылку на бота в личку
+        if message.chat.type in ["group", "supergroup"]:
+            await message.reply("❌ Чтобы играть, нужно подписаться на наши каналы!\nПерейди в бота: @luudorobot")
+        else:
+            # В личке просто выводим кнопки (как раньше)
+            pass 
+        return False
+    return True
+    
 async def is_subscribed(user_id):
     for channel in CHANNELS:
         try:
@@ -190,11 +201,14 @@ async def withdraw_handler(message: types.Message):
     else:
         await message.answer(f"❌ Недостаточно средств.\nМинимум: **30 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
 
-@dp.message(F.text == "🎰 ИГРАТЬ (Рулетка)")
+@dp.message(F.text.in_(["🎰 ИГРАТЬ (Рулетка)", "/play", "/dice"]))
 async def play_game(message: types.Message):
     user_id = message.from_user.id
-    
+    chat_type = message.chat.type # Определяем, где идет игра
+
     # 1. Проверка подписки
+    if not await is_subscribed_with_alert(message, user_id):
+        return
     if not await is_subscribed(user_id): 
         return await message.answer("❌ Сначала подпишитесь на канал!")
 
@@ -246,7 +260,20 @@ async def play_game(message: types.Message):
     else:
         quote = random.choice(lose_quotes)
         await message.answer(f"💨 **Мимо...** Попробуй еще раз!\n\n_{quote}_", parse_mode="Markdown")
-        
+        await message.reply(f"🏆 Юзер @{message.from_user.username} выиграл {win} ⭐!", parse_mode="HTML")
+
+@dp.message(Command("top"))
+async def chat_top(message: types.Message):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 5") as cursor:
+            rows = await cursor.fetchall()
+    
+    text = "🏆 **ТОП БОГАЧЕЙ ЛУДОБОТА:**\n\n"
+    for i, row in enumerate(rows, 1):
+        text += f"{i}. ID {row[0]} — {row[1]} ⭐\n"
+    
+    await message.answer(text, parse_mode="Markdown")
+    
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
     users, won = await get_global_stats()
