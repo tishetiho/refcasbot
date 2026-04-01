@@ -286,7 +286,7 @@ async def play_game(message: types.Message):
 
     # 6. Анимация казино
     msg = await message.answer_dice(emoji="🎰")
-    await asyncio.sleep(3.5) # Ждем завершения анимации
+    await asyncio.sleep(1.5) # Ждем завершения анимации
     
     win = 0
     
@@ -350,7 +350,7 @@ async def start_duel(message: types.Message, command: CommandObject):
     }
     
     await message.answer(
-        f"⚔️ **ВЫЗОВ НА ДУЭЛЬ!**\n\n"
+        f"⚔️ ВЫЗОВ НА ДУЭЛЬ!\n\n"
         f"👤 Игрок: {message.from_user.mention_html()}\n"
         f"💰 Ставка: **{bet} ⭐**\n\n"
         f"Чтобы принять вызов, ответь на это сообщение командой `/accept`",
@@ -386,12 +386,12 @@ async def accept_duel(message: types.Message):
         d1 = await bot.send_dice(chat_id, emoji="🎲")
         val1 = d1.dice.value # Результат зачинщика
         
-        await asyncio.sleep(3.5) # Пауза для драматизма
+        await asyncio.sleep(2.5) # Пауза для драматизма
         
         d2 = await bot.send_dice(chat_id, emoji="🎲")
         val2 = d2.dice.value # Результат принявшего
         
-        await asyncio.sleep(3.5)
+        await asyncio.sleep(2.5)
 
         if val1 == val2:
             await message.answer("🤝 **Ничья!** Очки равны, звезды остаются при своих.")
