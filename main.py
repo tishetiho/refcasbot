@@ -28,6 +28,12 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''CREATE TABLE IF NOT EXISTS settings 
+                          (key TEXT PRIMARY KEY, value INTEGER)''')
+        # Устанавливаем значение по умолчанию (1 = Включено), если записи нет
+        await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('bonus_enabled', 1)")
+        await db.commit()
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("PRAGMA journal_mode=WAL;") # Ускоряет одновременную запись и чтение
     async with aiosqlite.connect(DB_NAME) as db:
         # Создаем таблицу, если её нет
@@ -134,7 +140,17 @@ def main_menu_kb():
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def admin_kb():
+    async def get_admin_kb():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+            row = await cursor.fetchone()
+            is_enabled = row[0] if row else 1
+
     builder = InlineKeyboardBuilder()
+    status_text = "✅ Бонусы: ВКЛ" if is_enabled else "❌ Бонусы: ВЫКЛ"
+    
+    builder.row(types.InlineKeyboardButton(text=status_text, callback_data="toggle_bonuses"))
+    builder.row(types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
     builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
     builder.row(types.InlineKeyboardButton(text="📊 Общая статистика", callback_data="admin_stats"))
@@ -393,6 +409,11 @@ async def accept_duel(message: types.Message):
 
 @dp.message(F.chat.id == DISCUSSION_GROUP_ID)
 async def bonus_in_discussion(message: types.Message):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+            row = await cursor.fetchone()
+            if row and row[0] == 0:
+                return # Бонусы выключены, просто выходим
     # ПРОВЕРКА 1: Это сообщение от канала?
     # ПРОВЕРКА 2: В сообщении НЕТ команд (не начинается с /)
     if message.sender_chat and message.sender_chat.id == OFFICIAL_CHANNEL_ID:
@@ -500,6 +521,23 @@ async def process_broadcast(message: types.Message, state: FSMContext):
     await message.answer(f"✅ Готово! Получили: {count}")
     await state.clear()
 
+@dp.callback_query(F.data == "toggle_bonuses", F.from_user.id == ADMIN_ID)
+async def toggle_bonuses_callback(callback: types.CallbackQuery):
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Получаем текущее состояние
+        async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+            row = await cursor.fetchone()
+            current_status = row[0] if row else 1
+        
+        # Меняем на противоположное
+        new_status = 0 if current_status == 1 else 1
+        await db.execute("UPDATE settings SET value = ? WHERE key = 'bonus_enabled'", (new_status,))
+        await db.commit()
+
+    # Обновляем сообщение админа с новой кнопкой
+    await callback.message.edit_reply_markup(reply_markup=await get_admin_kb())
+    await callback.answer(f"Статус бонусов изменен на {'ВКЛ' if new_status else 'ВЫКЛ'}")
+    
 # 🎫 Кнопка: Создать промокод
 @dp.callback_query(F.data == "admin_add_promo", F.from_user.id == ADMIN_ID)
 async def start_promo(callback: types.CallbackQuery, state: FSMContext):
