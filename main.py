@@ -141,7 +141,7 @@ def main_menu_kb():
 
 def admin_kb():
     async def get_admin_kb():
-    async with aiosqlite.connect(DB_NAME) as db:
+        async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
             row = await cursor.fetchone()
             is_enabled = row[0] if row else 1
