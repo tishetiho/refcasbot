@@ -145,15 +145,6 @@ async def start_cmd(message: types.Message, command: CommandObject):
     user_id = message.from_user.id
     ref_id = int(command.args) if command.args and command.args.isdigit() and int(command.args) != user_id else None
     await add_user(user_id, ref_id)
-
-    if args and args.startswith("post_bonus_"):
-        post_id = args.split("_")[-1]
-        
-        async with aiosqlite.connect(DB_NAME) as db:
-            # ОПЦИОНАЛЬНО: Можно проверять, не забирал ли юзер уже бонус за ЭТОТ пост
-            # Но для простоты просто выдаем +3 энергии
-            await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
-            await db.commit()
             
         await message.answer(f"✅ Ты успешно забрал бонус за пост №{post_id}!\nНачислено: **+3 ⚡️ энергии**.", parse_mode="Markdown")
     
@@ -167,6 +158,15 @@ async def start_cmd(message: types.Message, command: CommandObject):
         
         builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
         await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
+
+    if args and args.startswith("post_bonus_"):
+        post_id = args.split("_")[-1]
+        
+        async with aiosqlite.connect(DB_NAME) as db:
+            # ОПЦИОНАЛЬНО: Можно проверять, не забирал ли юзер уже бонус за ЭТОТ пост
+            # Но для простоты просто выдаем +3 энергии
+            await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
+            await db.commit()
 
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
