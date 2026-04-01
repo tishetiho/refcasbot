@@ -42,10 +42,10 @@ async def init_db():
 
 async def get_user_data(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
-        db.row_factory = aiosqlite.Row # Чтобы обращаться к данным по именам
+        db.row_factory = aiosqlite.Row  # ЭТО ОЧЕНЬ ВАЖНО ДЛЯ РАБОТЫ РУЛЕТКИ
         async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
             return await cursor.fetchone()
-
+            
 async def add_user(user_id, referrer_id=None):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("INSERT OR IGNORE INTO users (user_id, referred_by) VALUES (?, ?)", (user_id, referrer_id))
@@ -134,51 +134,63 @@ async def withdraw_handler(message: types.Message):
     else:
         await message.answer(f"❌ Недостаточно средств.\nМинимум: **1000 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
 
-@dp.message(F.text == "🎰 ИГРАТЬ")
+@dp.message(F.text == "🎰 ИГРАТЬ (Рулетка)")
 async def play_game(message: types.Message):
     user_id = message.from_user.id
+    
+    # 1. Проверка подписки
     if not await is_subscribed(user_id): 
         return await message.answer("❌ Сначала подпишитесь на канал!")
 
+    # 2. Получение данных (с подстраховкой)
     data = await get_user_data(user_id)
     if not data: 
         await add_user(user_id)
         data = await get_user_data(user_id)
 
-    if data['energy'] <= 0: 
+    # 3. Проверка энергии
+    # Используем get(), чтобы бот не падал, если колонка вдруг не прочиталась
+    energy = data['energy'] if data else 0
+    
+    if energy <= 0: 
         return await message.answer("🪫 Нет энергии! Приглашай друзей или жди бонус.")
 
-    # Снимаем энергию
+    # 4. Списание энергии
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE users SET energy = energy - 1 WHERE user_id = ?", (user_id,))
         await db.commit()
 
-    # Списки цитат
+    # 5. Списки цитат
     win_quotes = [
         "«Удача — это когда готовность встречается с возможностью.» — Сенека",
         "«Победа — это еще не все, все — это постоянное желание побеждать.» — Винс Ломбарди",
-        "«Единственный способ сделать выдающуюся работу — любить то, что вы делаете.» — Стив Джобс",
         "«Успех — это идти от ошибки к ошибке без потери энтузиазма.» — Уинстон Черчилль"
     ]
     
     lose_quotes = [
         "«Проигрыш — не потеря семьи, можно пережить.» — Неизвестный",
-        "«Наша величайшая слава не в том, чтобы никогда не падать, а в том, чтобы подниматься каждый раз, когда мы падаем.» — Конфуций",
-        "«Азарт — это страсть, которая губит всё, но оживляет надежду.» — Неизвестный",
-        "«Если ты не проигрываешь, ты не растешь.» — Джастин Бибер",
+        "«Наша величайшая слава не в том, чтобы никогда не падать, а в том, чтобы подниматься.» — Конфуций",
         "«Иногда ты выигрываешь, иногда ты учишься.» — Джон Максвелл"
     ]
 
+    # 6. Анимация казино
     msg = await message.answer_dice(emoji="🎰")
-    await asyncio.sleep(3.5)
+    await asyncio.sleep(3.5) # Ждем завершения анимации
 
+    # 7. Логика результата
+    # Значения кубика 1, 22, 43, 64 — это три семерки (джекпот) в анимации Telegram
     if msg.dice.value in [1, 22, 43, 64]:
-        win = random.randint(15, 100) # Уменьшенные призы
+        win = random.randint(15, 100) 
         quote = random.choice(win_quotes)
         async with aiosqlite.connect(DB_NAME) as db:
             await db.execute("UPDATE users SET balance = balance + ?, total_won = total_won + ? WHERE user_id = ?", 
                              (win, win, user_id))
-
+            await db.commit()
+        await message.answer(f"🎉 **ПОБЕДА!** Ты выиграл **{win} ⭐**\n\n_{quote}_", parse_mode="Markdown")
+    else:
+        quote = random.choice(lose_quotes)
+        await message.answer(f"💨 **Мимо...** Попробуй еще раз!\n\n_{quote}_", parse_mode="Markdown")
+        
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
     users, won = await get_global_stats()
