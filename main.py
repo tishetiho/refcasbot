@@ -505,6 +505,57 @@ async def process_promo_activation(message: types.Message, state: FSMContext):
     # Выходим из режима ожидания промокода
     await state.clear()
 
+@dp.callback_query(F.data.startswith("claim_"))
+async def claim_check(callback: types.CallbackQuery):
+    check_id = callback.data.split("_")[1]
+    user_id = callback.from_user.id
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT creator_id, amount, type, is_claimed FROM checks WHERE check_id = ?", (check_id,)) as cursor:
+            check = await cursor.fetchone()
+
+        if not check:
+            return await callback.answer("Чек не найден!", show_alert=True)
+        
+        creator_id, amount, ctype, is_claimed = check
+
+        if is_claimed:
+            return await callback.answer("Этот чек уже кто-то забрал! 😔", show_alert=True)
+        
+        if user_id == creator_id:
+            return await callback.answer("Вы не можете забрать свой собственный чек!", show_alert=True)
+
+        # 1. Помечаем как использованный
+        await db.execute("UPDATE checks SET is_claimed = 1 WHERE check_id = ?", (check_id,))
+        # 2. Начисляем валюту
+        column = "energy" if ctype == "energy" else "stars"
+        await db.execute(f"UPDATE users SET {column} = {column} + ? WHERE user_id = ?", (amount, user_id))
+        await db.commit()
+
+    await callback.message.edit_text(f"✅ Чек на {amount} {ctype} активирован юзером {callback.from_user.first_name}!")
+    await callback.answer("Поздравляем! Валюта начислена.")
+
+@dp.callback_query(F.data.startswith("cancel_check_"))
+async def cancel_check(callback: types.CallbackQuery):
+    check_id = callback.data.split("_")[2]
+    user_id = callback.from_user.id
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT creator_id, amount, type, is_claimed FROM checks WHERE check_id = ?", (check_id,)) as cursor:
+            check = await cursor.fetchone()
+
+        if not check or check[0] != user_id or check[3] == 1:
+            return await callback.answer("Невозможно отменить этот чек!", show_alert=True)
+
+        # Возвращаем валюту
+        column = "energy" if check[2] == "energy" else "stars"
+        await db.execute(f"UPDATE users SET {column} = {column} + ? WHERE user_id = ?", (check[1], user_id))
+        await db.execute("DELETE FROM checks WHERE check_id = ?", (check_id,))
+        await db.commit()
+
+    await callback.message.edit_text("🚫 Чек аннулирован, средства вернулись владельцу.")
+    await callback.answer("Деньги возвращены!")
+    
 # 📢 Кнопка: Рассылка
 @dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
 async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
