@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram import BaseMiddleware
+from aiogram.types import Message
+from typing import Any, Awaitable, Callable, Dict
+import time
 
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
@@ -21,6 +25,8 @@ dp = Dispatcher()
 
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("PRAGMA journal_mode=WAL;") # Ускоряет одновременную запись и чтение
     async with aiosqlite.connect(DB_NAME) as db:
         # Создаем таблицу, если её нет
         await db.execute('''CREATE TABLE IF NOT EXISTS users 
@@ -75,6 +81,35 @@ async def is_subscribed(user_id):
             return False # Если бота выкинули из админов канала, доступ закрываем
     return True # Если цикл прошел по всем и не прервался — всё ок
 
+class ThrottlingMiddleware(BaseMiddleware):
+    def __init__(self, slow_mode_delay: float = 0.7):
+        # slow_mode_delay — задержка между сообщениями в секундах
+        self.user_limits = {}
+        self.delay = slow_mode_delay
+        super().__init__()
+
+    async def __call__(
+        self,
+        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+        event: Message,
+        data: Dict[str, Any]
+    ) -> Any:
+        user_id = event.from_user.id
+        current_time = time.time()
+
+        # Проверяем, когда пользователь писал последний раз
+        if user_id in self.user_limits:
+            last_time = self.user_limits[user_id]
+            if current_time - last_time < self.delay:
+                # Если пишет слишком быстро — игнорируем или шлем предупреждение
+                if current_time - last_time > 0.2: # Чтобы не спамить в ответ на спам
+                    return await event.answer("⚠️ Не спеши! Подожди немного.")
+                return 
+
+        # Обновляем время последнего сообщения
+        self.user_limits[user_id] = current_time
+        return await handler(event, data)
+        
 # --- МЕНЮ ---
 def main_menu_kb():
     kb = [
@@ -344,6 +379,9 @@ async def check_cb(callback: types.CallbackQuery):
         await callback.message.answer("🎉 Подписка подтверждена!", reply_markup=main_menu_kb())
     else:
         await callback.answer("❌ Вы всё еще не подписаны!", show_alert=True)
+
+# Регистрация мидлвари для всех сообщений
+dp.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.6))
 
 async def main():
     await init_db()
