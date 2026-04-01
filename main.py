@@ -201,7 +201,7 @@ async def play_game(message: types.Message):
     # 7. Логика результата
     # Значения кубика 1, 22, 43, 64 — это три семерки (джекпот) в анимации Telegram
     if msg.dice.value in [1, 22, 43, 64]:
-        win = random.randint(15, 100) 
+        win = random.randint(1, 15) 
         quote = random.choice(win_quotes)
         async with aiosqlite.connect(DB_NAME) as db:
             await db.execute("UPDATE users SET balance = balance + ?, total_won = total_won + ? WHERE user_id = ?", 
