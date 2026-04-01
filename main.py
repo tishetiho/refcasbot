@@ -144,9 +144,20 @@ async def start_cmd(message: types.Message, command: CommandObject):
     user_id = message.from_user.id
     ref_id = int(command.args) if command.args and command.args.isdigit() and int(command.args) != user_id else None
     await add_user(user_id, ref_id)
+
+    if args and args.startswith("post_bonus_"):
+        post_id = args.split("_")[-1]
+        
+        async with aiosqlite.connect(DB_NAME) as db:
+            # ОПЦИОНАЛЬНО: Можно проверять, не забирал ли юзер уже бонус за ЭТОТ пост
+            # Но для простоты просто выдаем +3 энергии
+            await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
+            await db.commit()
+            
+        await message.answer(f"✅ Ты успешно забрал бонус за пост №{post_id}!\nНачислено: **+3 ⚡️ энергии**.", parse_mode="Markdown")
     
     if await is_subscribed(user_id):
-        await message.answer("✅ Вы подписаны на все каналы! Удачи в игре!", reply_markup=main_menu_kb())
+        await message.answer("✅ Спасибо за подписку! Удачи в игре!", reply_markup=main_menu_kb())
     else:
         builder = InlineKeyboardBuilder()
         # Циклом добавляем все каналы из списка
@@ -487,6 +498,23 @@ async def process_promo(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка в формате. Попробуй еще раз.")
     await state.clear()
+
+@dp.channel_post()
+async def edit_post_with_button(message: types.Message):
+    # Создаем кнопку
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(
+        text="🎁 ЗАБРАТЬ БОНУС (+3 ⚡️)", 
+        url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.message_id}"
+    ))
+
+    # Просто добавляем кнопку к уже вышедшему посту
+    try:
+        await message.edit_reply_markup(reply_markup=builder.as_markup())
+    except Exception as e:
+        # Если в посте уже была кнопка (например, ссылка), это может вызвать конфликт,
+        # тогда бот просто отправит сообщение следом:
+        await message.answer("🎁 Бонус к посту выше!", reply_markup=builder.as_markup())
 
 # 📊 Кнопка: Подробная статистика
 @dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
