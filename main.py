@@ -267,6 +267,7 @@ async def process_promo_activation(message: types.Message, state: FSMContext):
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
     waiting_for_promo = State()
+    
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
 
