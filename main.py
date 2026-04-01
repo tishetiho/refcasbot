@@ -140,20 +140,30 @@ def main_menu_kb():
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def admin_kb():
-    async def get_admin_kb():
-    # Уровень 1 (внутри функции)
-        async with aiosqlite.connect(DB_NAME) as db:
-        # Уровень 2 (внутри первого with)
-            async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
-            # Уровень 3 (внутри второго with) — ВОТ ЗДЕСЬ БЫЛА ОШИБКА
-                row = await cursor.fetchone()
-            is_enabled = row[0] if row else 1
-
-    # Возвращаемся на Уровень 1 (внутри функции, но вне with)
-    builder = InlineKeyboardBuilder()
-    status_text = "✅ Бонусы: ВКЛ" if is_enabled else "❌ Бонусы: ВЫКЛ"
+    async def admin_kb():
+    # 1. Сначала задаем значение по умолчанию
+    is_enabled = 1 
     
-    builder.row(types.InlineKeyboardButton(text=status_text, callback_data="toggle_bonuses"))
+    # 2. Пробуем получить реальное значение из базы
+    try:
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+                row = await cursor.fetchone()
+                if row is not None:
+                    is_enabled = row[0]
+    except Exception as e:
+        print(f"Ошибка БД в админке: {e}")
+
+    # 3. Теперь создаем кнопки (выравнивание должно быть по левому краю функции)
+    builder = InlineKeyboardBuilder()
+    
+    # Теперь Python точно знает, что такое is_enabled
+    status_text = "✅ Бонусы: ВКЛ" if is_enabled == 1 else "❌ Бонусы: ВЫКЛ"
+    
+    builder.row(types.InlineKeyboardButton(
+        text=status_text, 
+        callback_data="toggle_bonuses")
+    )
     builder.row(types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
     builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
@@ -192,7 +202,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
         
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
-    await message.answer("🛠 **ПАНЕЛЬ УПРАВЛЕНИЯ**\n\nВыбери действие:", reply_markup=admin_kb(), parse_mode="Markdown")
+    await message.answer("🛠 **ПАНЕЛЬ УПРАВЛЕНИЯ**\n\nВыбери действие:", reply_markup=await admin_kb(), parse_mode="Markdown")
     
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: types.Message):
