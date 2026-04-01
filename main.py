@@ -141,23 +141,20 @@ def main_menu_kb():
 
 def admin_kb():
     async def admin_kb():
-    # 1. Сначала задаем значение по умолчанию
-        is_enabled = 1 
+        is_enabled = 1  # Значение по умолчанию
     
-    # 2. Пробуем получить реальное значение из базы
-        try:
-            async with aiosqlite.connect(DB_NAME) as db:
-                async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
-                    row = await cursor.fetchone()
+    try:
+        # ПРОВЕРЬ ОТСТУПЫ ЗДЕСЬ (4 пробела от try)
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+                row = await cursor.fetchone()
                 if row is not None:
                     is_enabled = row[0]
     except Exception as e:
         print(f"Ошибка БД в админке: {e}")
 
-    # 3. Теперь создаем кнопки (выравнивание должно быть по левому краю функции)
+    # Это уже вне блока try, на одном уровне с ним
     builder = InlineKeyboardBuilder()
-    
-    # Теперь Python точно знает, что такое is_enabled
     status_text = "✅ Бонусы: ВКЛ" if is_enabled == 1 else "❌ Бонусы: ВЫКЛ"
     
     builder.row(types.InlineKeyboardButton(
