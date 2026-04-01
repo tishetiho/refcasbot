@@ -169,26 +169,6 @@ async def start_cmd(message: types.Message, command: CommandObject):
         
         builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
         await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
-
-@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
-async def bonus_in_discussion(message: types.Message):
-    # Проверяем, является ли сообщение автоматическим репостом из канала
-    # (sender_chat существует, если сообщение отправлено от имени канала)
-    if message.sender_chat and message.sender_chat.id == OFFICIAL_CHANNEL_ID:
-        
-        builder = InlineKeyboardBuilder()
-        builder.row(types.InlineKeyboardButton(
-            text="🎁 ЗАБРАТЬ 3 ⚡️", 
-            url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.forward_from_message_id}"
-        ))
-
-        await message.reply(
-            "🎊 **ПЕРВЫЙ БОНУС В ОБСУЖДЕНИИ!**\n\n"
-            "Жми кнопку ниже, чтобы получить +3 энергии прямо сейчас. "
-            "Успей, пока другие не разобрали!",
-            reply_markup=builder.as_markup(),
-            parse_mode="Markdown"
-        )
         
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
@@ -410,6 +390,29 @@ async def accept_duel(message: types.Message):
     
     # Удаляем дуэль из активных
     del active_duels[chat_id]
+
+@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
+async def bonus_in_discussion(message: types.Message):
+    # ПРОВЕРКА 1: Это сообщение от канала?
+    # ПРОВЕРКА 2: В сообщении НЕТ команд (не начинается с /)
+    if message.sender_chat and message.sender_chat.id == OFFICIAL_CHANNEL_ID:
+        if not message.text or not message.text.startswith("/"):
+            
+            builder = InlineKeyboardBuilder()
+            builder.row(types.InlineKeyboardButton(
+                text="🎁 ЗАБРАТЬ 3 ⚡️", 
+                url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.forward_from_message_id}"
+            ))
+
+            await message.reply(
+                "🎊 **БОНУС К НОВОСТИ!**\nЖми кнопку ниже:",
+                reply_markup=builder.as_markup(),
+                parse_mode="Markdown"
+            )
+            return # Выходим, чтобы не мешать другим проверкам
+    
+    # Если это не пост из канала, бот просто проигнорирует и 
+    # aiogram пойдет искать другие хендлеры (например, игры)
     
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
