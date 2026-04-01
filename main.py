@@ -1,6 +1,8 @@
 import asyncio
 import random
 import aiosqlite
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
@@ -261,9 +263,6 @@ async def process_promo_activation(message: types.Message, state: FSMContext):
     # Выходим из режима ожидания промокода
     await state.clear()
     
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-
 # Состояния для админки
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
