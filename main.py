@@ -141,11 +141,15 @@ def main_menu_kb():
 
 def admin_kb():
     async def get_admin_kb():
+    # Уровень 1 (внутри функции)
         async with aiosqlite.connect(DB_NAME) as db:
+        # Уровень 2 (внутри первого with)
             async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
-            row = await cursor.fetchone()
+            # Уровень 3 (внутри второго with) — ВОТ ЗДЕСЬ БЫЛА ОШИБКА
+                row = await cursor.fetchone()
             is_enabled = row[0] if row else 1
 
+    # Возвращаемся на Уровень 1 (внутри функции, но вне with)
     builder = InlineKeyboardBuilder()
     status_text = "✅ Бонусы: ВКЛ" if is_enabled else "❌ Бонусы: ВЫКЛ"
     
