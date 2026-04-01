@@ -273,6 +273,103 @@ async def chat_top(message: types.Message):
         text += f"{i}. ID {row[0]} — {row[1]} ⭐\n"
     
     await message.answer(text, parse_mode="Markdown")
+
+# Словарик для хранения активных вызовов (кто кого вызвал)
+active_duels = {}
+
+@dp.message(Command("duel"), F.chat.type.in_(["group", "supergroup"]))
+async def start_duel(message: types.Message, command: CommandObject):
+    user_id = message.from_user.id
+    
+    # Проверка ставки (например: /duel 50)
+    if not command.args or not command.args.isdigit():
+        return await message.reply("⚠️ Напиши ставку: `/duel 50`", parse_mode="Markdown")
+    
+    bet = int(command.args)
+    
+    # Проверка баланса игрока в БД
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            user = await cursor.fetchone()
+            if not user or user['balance'] < bet:
+                return await message.reply(f"❌ Недостаточно ⭐ для такой ставки! Твой баланс: {user['balance'] if user else 0}")
+
+    # Запоминаем дуэль
+    active_duels[message.chat.id] = {
+        "challenger": user_id,
+        "bet": bet,
+        "message_id": message.message_id
+    }
+    
+    await message.answer(
+        f"⚔️ **ВЫЗОВ НА ДУЭЛЬ!**\n\n"
+        f"👤 Игрок: {message.from_user.mention_html()}\n"
+        f"💰 Ставка: **{bet} ⭐**\n\n"
+        f"Чтобы принять вызов, ответь на это сообщение командой `/accept`",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("accept"), F.chat.type.in_(["group", "supergroup"]))
+async def accept_duel(message: types.Message):
+    chat_id = message.chat.id
+    acceptor_id = message.from_user.id
+    
+    if chat_id not in active_duels:
+        return await message.reply("❌ Сейчас нет активных вызовов в этом чате.")
+    
+    duel_data = active_duels[chat_id]
+    challenger_id = duel_data['challenger']
+    bet = duel_data['bet']
+    
+    if acceptor_id == challenger_id:
+        return await message.reply("🤔 Нельзя играть против самого себя.")
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        # Проверяем баланс того, кто принимает
+        async with db.execute("SELECT balance FROM users WHERE user_id = ?", (acceptor_id,)) as cursor:
+            user = await cursor.fetchone()
+            if not user or user['balance'] < bet:
+                return await message.reply(f"❌ У тебя не хватает ⭐ для принятия вызова!")
+
+        # Бросаем кости
+        await message.answer(f"🎲 Бросаем кости для {message.from_user.first_name} и игрока выше...")
+        
+        d1 = await bot.send_dice(chat_id, emoji="🎲")
+        val1 = d1.dice.value # Результат зачинщика
+        
+        await asyncio.sleep(3.5) # Пауза для драматизма
+        
+        d2 = await bot.send_dice(chat_id, emoji="🎲")
+        val2 = d2.dice.value # Результат принявшего
+        
+        await asyncio.sleep(3.5)
+
+        if val1 == val2:
+            await message.answer("🤝 **Ничья!** Очки равны, звезды остаются при своих.")
+        else:
+            winner_id = challenger_id if val1 > val2 else acceptor_id
+            loser_id = acceptor_id if val1 > val2 else challenger_id
+            
+            # Твоя комиссия 10% (опционально)
+            prize = int(bet * 0.9) 
+            
+            # Обновляем балансы
+            await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (prize, winner_id))
+            await db.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (bet, loser_id))
+            await db.commit()
+
+            winner_name = "Первый игрок" if val1 > val2 else message.from_user.first_name
+            await message.answer(
+                f"🎉 Победил {winner_name}!\n"
+                f"📈 Результат: {val1} vs {val2}\n"
+                f"💰 Выигрыш: **+{prize} ⭐** (с учетом комиссии)",
+                parse_mode="Markdown"
+            )
+    
+    # Удаляем дуэль из активных
+    del active_duels[chat_id]
     
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
