@@ -147,7 +147,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
     ref_id = int(command.args) if command.args and command.args.isdigit() and int(command.args) != user_id else None
     await add_user(user_id, ref_id)
     
-            if args and args.startswith("post_bonus_"):
+    if args and args.startswith("post_bonus_"):
         post_id = args.split("_")[-1]
         
         async with aiosqlite.connect(DB_NAME) as db:
