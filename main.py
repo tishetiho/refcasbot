@@ -14,6 +14,7 @@ import time
 
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
+OFFICIAL_CHANNEL_ID = -1003884251721
 CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove"},
 ]
@@ -501,21 +502,24 @@ async def process_promo(message: types.Message, state: FSMContext):
 
 @dp.channel_post()
 async def edit_post_with_button(message: types.Message):
-    # Создаем кнопку
+    # ПРОВЕРКА: Если пост пришел НЕ из нашего канала — игнорируем
+    if message.chat.id != OFFICIAL_CHANNEL_ID:
+        return
+
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(
         text="🎁 ЗАБРАТЬ БОНУС (+3 ⚡️)", 
         url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.message_id}"
     ))
 
-    # Просто добавляем кнопку к уже вышедшему посту
     try:
+        # Пробуем добавить кнопку к посту
         await message.edit_reply_markup(reply_markup=builder.as_markup())
     except Exception as e:
-        # Если в посте уже была кнопка (например, ссылка), это может вызвать конфликт,
-        # тогда бот просто отправит сообщение следом:
-        await message.answer("🎁 Бонус к посту выше!", reply_markup=builder.as_markup())
-
+        # Если пост нельзя редактировать (например, это картинка с подписью, 
+        # которую бот не может тронуть без прав), отправляем сообщение следом
+        await message.answer("👆 Забирай бонус к посту выше!", reply_markup=builder.as_markup())
+        
 # 📊 Кнопка: Подробная статистика
 @dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
 async def admin_stats_call(callback: types.CallbackQuery):
