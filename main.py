@@ -185,10 +185,10 @@ async def daily_bonus(message: types.Message):
 async def withdraw_handler(message: types.Message):
     data = await get_user_data(message.from_user.id)
     balance = data['balance']
-    if balance >= 1000:
-        await message.answer(f"💎 На вашем балансе {balance} ⭐\n\nДля вывода напишите админу: @твой_логин")
+    if balance >= 30:
+        await message.answer(f"💎 На вашем балансе {balance} ⭐\n\nДля вывода напишите сумму вывода и ожидайте поступления средств")
     else:
-        await message.answer(f"❌ Недостаточно средств.\nМинимум: **1000 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
+        await message.answer(f"❌ Недостаточно средств.\nМинимум: **30 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
 
 @dp.message(F.text == "🎰 ИГРАТЬ (Рулетка)")
 async def play_game(message: types.Message):
