@@ -140,27 +140,22 @@ def main_menu_kb():
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def admin_kb():
+    # Прямо перед этой строкой нажми Enter 2-3 раза, чтобы отделить от верхнего кода
     async def admin_kb():
-        is_enabled = 1  # Значение по умолчанию
-    
+        is_enabled = 1
+    # Мы вынесли подключение в отдельную переменную для чистоты
+    conn = await aiosqlite.connect(DB_NAME) 
     try:
-        # ПРОВЕРЬ ОТСТУПЫ ЗДЕСЬ (4 пробела от try)
-        async with aiosqlite.connect(DB_NAME) as db:
-            async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
-                row = await cursor.fetchone()
-                if row is not None:
-                    is_enabled = row[0]
-    except Exception as e:
-        print(f"Ошибка БД в админке: {e}")
+        async with conn.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+            row = await cursor.fetchone()
+            if row:
+                is_enabled = row[0]
+    finally:
+        await conn.close()
 
-    # Это уже вне блока try, на одном уровне с ним
     builder = InlineKeyboardBuilder()
     status_text = "✅ Бонусы: ВКЛ" if is_enabled == 1 else "❌ Бонусы: ВЫКЛ"
-    
-    builder.row(types.InlineKeyboardButton(
-        text=status_text, 
-        callback_data="toggle_bonuses")
-    )
+    builder.row(types.InlineKeyboardButton(text=status_text, callback_data="toggle_bonuses"))
     builder.row(types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
     builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
