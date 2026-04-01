@@ -223,6 +223,14 @@ async def ref_handler(message: types.Message):
     link = f"https://t.me/{me.username}?start={message.from_user.id}"
     await message.answer(f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\nПриглашай друзей и получай **+5 ⚡** за каждого!\n\n🔗 Твоя ссылка:\n`{link}`", parse_mode="Markdown")
 
+# Состояния для админки
+class AdminStates(StatesGroup):
+    waiting_for_broadcast = State()
+    waiting_for_promo = State()
+    
+class UserStates(StatesGroup):
+    waiting_for_promo_activation = State()
+    
 # 1. Сначала ловим нажатие кнопки
 @dp.message(F.text == "🎫 Промокод")
 async def promo_start_activation(message: types.Message, state: FSMContext):
@@ -262,14 +270,6 @@ async def process_promo_activation(message: types.Message, state: FSMContext):
     
     # Выходим из режима ожидания промокода
     await state.clear()
-    
-# Состояния для админки
-class AdminStates(StatesGroup):
-    waiting_for_broadcast = State()
-    waiting_for_promo = State()
-    
-class UserStates(StatesGroup):
-    waiting_for_promo_activation = State()
 
 # 📢 Кнопка: Рассылка
 @dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
