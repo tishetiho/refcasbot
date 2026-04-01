@@ -28,6 +28,9 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''CREATE TABLE IF NOT EXISTS checks 
+                  (check_id TEXT PRIMARY KEY, creator_id INTEGER, 
+                   amount INTEGER, type TEXT, is_claimed INTEGER DEFAULT 0)''')
         await db.execute('''CREATE TABLE IF NOT EXISTS settings 
                           (key TEXT PRIMARY KEY, value INTEGER)''')
         # Устанавливаем значение по умолчанию (1 = Включено), если записи нет
@@ -592,6 +595,47 @@ async def check_cb(callback: types.CallbackQuery):
     else:
         await callback.answer("❌ Вы всё еще не подписаны!", show_alert=True)
 
+@dp.inline_query()
+async def inline_check_handler(inline_query: types.InlineQuery):
+    text = inline_query.query.strip().split()
+    
+    # Проверяем, что введено: [число] [тип]
+    if len(text) < 2 or not text[0].isdigit():
+        return
+
+    amount = int(text[0])
+    ctype = text[1].lower() # 'energy' или 'stars'
+    
+    if ctype not in ['energy', 'stars'] or amount <= 0:
+        return
+
+    check_id = str(uuid.uuid4())[:8] # Короткий ID для чека
+    
+    # Создаем карточку чека в результатах поиска
+    results = [
+        types.InlineQueryResultArticle(
+            id=check_id,
+            title=f"Создать чек на {amount} {ctype}",
+            description="Нажми, чтобы отправить чек в чат",
+            input_message_content=types.InputTextMessageContent(
+                message_text=f"🎁 **Чек на {amount} {ctype}**\n\nКто успеет первым, тот заберет награду!"
+            ),
+            reply_markup=InlineKeyboardBuilder().row(
+                types.InlineKeyboardButton(text="Забрать ⚡️", callback_data=f"claim_{check_id}")
+            ).as_markup()
+        )
+    ]
+    
+    # Сохраняем чек в базу как "пре-созданный" (или создавай при клике)
+    # Для простоты сохраним сразу:
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Здесь нужно проверить, хватает ли у игрока валюты, прежде чем создавать!
+        await db.execute("INSERT INTO checks (check_id, creator_id, amount, type) VALUES (?, ?, ?, ?)",
+                         (check_id, inline_query.from_user.id, amount, ctype))
+        await db.commit()
+
+    await inline_query.answer(results, cache_time=1)
+    
 # Регистрация мидлвари для всех сообщений
 dp.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.6))
 
