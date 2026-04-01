@@ -11,6 +11,7 @@ TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
 CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove"},
 ]
+ADMIN_ID = 5078764886
 DB_NAME = "bot_database.db"
 
 bot = Bot(token=TOKEN)
@@ -82,6 +83,13 @@ def main_menu_kb():
     ]
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
+def admin_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
+    builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
+    builder.row(types.InlineKeyboardButton(text="📊 Общая статистика", callback_data="admin_stats"))
+    return builder.as_markup()
+    
 # --- ОБРАБОТЧИКИ ---
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message, command: CommandObject):
@@ -100,6 +108,10 @@ async def start_cmd(message: types.Message, command: CommandObject):
         builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
         await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
 
+@dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
+async def admin_panel(message: types.Message):
+    await message.answer("🛠 **ПАНЕЛЬ УПРАВЛЕНИЯ**\n\nВыбери действие:", reply_markup=admin_kb(), parse_mode="Markdown")
+    
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: types.Message):
     data = await get_user_data(message.from_user.id)
@@ -209,6 +221,80 @@ async def ref_handler(message: types.Message):
     link = f"https://t.me/{me.username}?start={message.from_user.id}"
     await message.answer(f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\nПриглашай друзей и получай **+5 ⚡** за каждого!\n\n🔗 Твоя ссылка:\n`{link}`", parse_mode="Markdown")
 
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+# Состояния для админки
+class AdminStates(StatesGroup):
+    waiting_for_broadcast = State()
+    waiting_for_promo = State()
+
+# 📢 Кнопка: Рассылка
+@dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
+async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("📝 Введите текст для рассылки всем пользователям:")
+    await state.set_state(AdminStates.waiting_for_broadcast)
+    await callback.answer()
+
+# Обработка самого текста рассылки
+@dp.message(AdminStates.waiting_for_broadcast, F.from_user.id == ADMIN_ID)
+async def process_broadcast(message: types.Message, state: FSMContext):
+    text = message.text
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT user_id FROM users") as cursor:
+            users = await cursor.fetchall()
+    
+    await message.answer(f"⏳ Начинаю рассылку на {len(users)} чел...")
+    count = 0
+    for row in users:
+        try:
+            await bot.send_message(row[0], text)
+            count += 1
+            await asyncio.sleep(0.05)
+        except: pass
+    
+    await message.answer(f"✅ Готово! Получили: {count}")
+    await state.clear()
+
+# 🎫 Кнопка: Создать промокод
+@dp.callback_query(F.data == "admin_add_promo", F.from_user.id == ADMIN_ID)
+async def start_promo(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        "Формат ввода:\n`КОД ТИП СУММА КОЛВО`\n\n"
+        "Пример: `GIFT2026 stars 100 50`", 
+        parse_mode="Markdown"
+    )
+    await state.set_state(AdminStates.waiting_for_promo)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_promo, F.from_user.id == ADMIN_ID)
+async def process_promo(message: types.Message, state: FSMContext):
+    try:
+        args = message.text.split()
+        code, r_type, amount, uses = args[0], args[1], int(args[2]), int(args[3])
+        
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("INSERT INTO promos VALUES (?, ?, ?, ?)", (code, r_type, amount, uses))
+            await db.commit()
+        await message.answer(f"✅ Промокод `{code}` успешно создан!")
+    except:
+        await message.answer("❌ Ошибка в формате. Попробуй еще раз.")
+    await state.clear()
+
+# 📊 Кнопка: Подробная статистика
+@dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
+async def admin_stats_call(callback: types.CallbackQuery):
+    users, won = await get_global_stats()
+    # Можно добавить больше данных
+    await callback.message.answer(
+        f"📈 **ДЕТАЛЬНАЯ СТАТИСТИКА**\n\n"
+        f"👥 Всего юзеров: {users}\n"
+        f"💰 Всего выплачено: {won} ⭐\n"
+        f"📅 Сегодня 2026 год, бот работает стабильно.", 
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+    
 @dp.callback_query(F.data == "check_sub")
 async def check_cb(callback: types.CallbackQuery):
     if await is_subscribed(callback.from_user.id):
