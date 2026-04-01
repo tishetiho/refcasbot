@@ -600,42 +600,63 @@ async def check_cb(callback: types.CallbackQuery):
 async def inline_check_handler(inline_query: types.InlineQuery):
     text = inline_query.query.strip().split()
     
-    # Проверяем, что введено: [число] [тип]
+    # Ожидаем ввод типа: "10 energy" или "5 stars"
     if len(text) < 2 or not text[0].isdigit():
         return
 
     amount = int(text[0])
-    ctype = text[1].lower() # 'energy' или 'stars'
+    ctype = text[1].lower()
+    user_id = inline_query.from_user.id
     
     if ctype not in ['energy', 'stars'] or amount <= 0:
         return
 
-    check_id = str(uuid.uuid4())[:8] # Короткий ID для чека
+    # Проверяем баланс игрока в базе
+    async with aiosqlite.connect(DB_NAME) as db:
+        column = "energy" if ctype == "energy" else "stars"
+        async with db.execute(f"SELECT {column} FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            user_balance = row[0] if row else 0
+
+    # Если денег мало — показываем ошибку в превью
+    if user_balance < amount:
+        results = [
+            types.InlineQueryResultArticle(
+                id="error_balance",
+                title="❌ Недостаточно средств",
+                description=f"У тебя всего {user_balance} {ctype}",
+                input_message_content=types.InputTextMessageContent(
+                    message_text="Я пытался создать чек, но я беден... 🤡"
+                )
+            )
+        ]
+        return await inline_query.answer(results, cache_time=1)
+
+    # Если всё ОК — генерируем чек
+    check_id = str(uuid.uuid4())[:8]
     
-    # Создаем карточку чека в результатах поиска
+    # Сразу списываем валюту у создателя (чтобы он не мог спамить чеками)
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(f"UPDATE users SET {column} = {column} - ? WHERE user_id = ?", (amount, user_id))
+        await db.execute("INSERT INTO checks (check_id, creator_id, amount, type) VALUES (?, ?, ?, ?)",
+                         (check_id, user_id, amount, ctype))
+        await db.commit()
+
     results = [
         types.InlineQueryResultArticle(
             id=check_id,
-            title=f"Создать чек на {amount} {ctype}",
-            description="Нажми, чтобы отправить чек в чат",
+            title=f"🎁 Создать чек на {amount} {ctype}",
+            description=f"С твоего баланса будет списано {amount} {ctype}",
             input_message_content=types.InputTextMessageContent(
-                message_text=f"🎁 **Чек на {amount} {ctype}**\n\nКто успеет первым, тот заберет награду!"
+                message_text=f"📦 **НОВЫЙ ЧЕК!**\n\nНоминал: `{amount}` {ctype}\nКто первый нажмет на кнопку, тот и заберет!"
             ),
             reply_markup=InlineKeyboardBuilder().row(
-                types.InlineKeyboardButton(text="Забрать ⚡️", callback_data=f"claim_{check_id}")
+                types.InlineKeyboardButton(text="ЗАБРАТЬ ⚡️", callback_data=f"claim_{check_id}")
             ).as_markup()
         )
     ]
     
-    # Сохраняем чек в базу как "пре-созданный" (или создавай при клике)
-    # Для простоты сохраним сразу:
-    async with aiosqlite.connect(DB_NAME) as db:
-        # Здесь нужно проверить, хватает ли у игрока валюты, прежде чем создавать!
-        await db.execute("INSERT INTO checks (check_id, creator_id, amount, type) VALUES (?, ?, ?, ?)",
-                         (check_id, inline_query.from_user.id, amount, ctype))
-        await db.commit()
-
-    await inline_query.answer(results, cache_time=1)
+    await inline_query.answer(results, cache_time=1, is_personal=True)
     
 # Регистрация мидлвари для всех сообщений
 dp.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.6))
