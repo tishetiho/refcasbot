@@ -142,13 +142,13 @@ def main_menu_kb():
 def admin_kb():
     async def admin_kb():
     # 1. Сначала задаем значение по умолчанию
-    is_enabled = 1 
+        is_enabled = 1 
     
     # 2. Пробуем получить реальное значение из базы
-    try:
-        async with aiosqlite.connect(DB_NAME) as db:
-            async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
-                row = await cursor.fetchone()
+        try:
+            async with aiosqlite.connect(DB_NAME) as db:
+                async with db.execute("SELECT value FROM settings WHERE key = 'bonus_enabled'") as cursor:
+                    row = await cursor.fetchone()
                 if row is not None:
                     is_enabled = row[0]
     except Exception as e:
