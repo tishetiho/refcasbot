@@ -259,12 +259,12 @@ async def play_game(message: types.Message):
             await db.commit()
         
         # Ответ при победе
-        await asyncio.sleep(4) # Ждем, пока анимация докрутится
+        await asyncio.sleep(2.5) # Ждем, пока анимация докрутится
         await message.reply(f"🏆 Юзер @{message.from_user.username} выиграл {win} ⭐!", parse_mode="HTML")
     
     else:
         # Ответ при проигрыше
-        await asyncio.sleep(4)
+        await asyncio.sleep(2.5)
         # Здесь мы НЕ используем переменную win, чтобы не было путаницы
         await message.reply(f"❌ Юзер @{message.from_user.username} ничего не выиграл. Попробуй еще раз!")
 
