@@ -246,21 +246,27 @@ async def play_game(message: types.Message):
     # 6. Анимация казино
     msg = await message.answer_dice(emoji="🎰")
     await asyncio.sleep(3.5) # Ждем завершения анимации
-
+    
+    win = 0
+    
     # 7. Логика результата
     # Значения кубика 1, 22, 43, 64 — это три семерки (джекпот) в анимации Telegram
     if msg.dice.value in [1, 22, 43, 64]:
         win = random.randint(1, 15) 
         quote = random.choice(win_quotes)
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE users SET balance = balance + ?, total_won = total_won + ? WHERE user_id = ?", 
-                             (win, win, user_id))
+            await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (win, user_id))
             await db.commit()
-        await message.answer(f"🎉 **ПОБЕДА!** Ты выиграл **{win} ⭐**\n\n_{quote}_", parse_mode="Markdown")
-    else:
-        quote = random.choice(lose_quotes)
-        await message.answer(f"💨 **Мимо...** Попробуй еще раз!\n\n_{quote}_", parse_mode="Markdown")
+        
+        # Ответ при победе
+        await asyncio.sleep(4) # Ждем, пока анимация докрутится
         await message.reply(f"🏆 Юзер @{message.from_user.username} выиграл {win} ⭐!", parse_mode="HTML")
+    
+    else:
+        # Ответ при проигрыше
+        await asyncio.sleep(4)
+        # Здесь мы НЕ используем переменную win, чтобы не было путаницы
+        await message.reply(f"❌ Юзер @{message.from_user.username} ничего не выиграл. Попробуй еще раз!")
 
 @dp.message(Command("top"))
 async def chat_top(message: types.Message):
