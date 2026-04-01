@@ -134,29 +134,50 @@ async def withdraw_handler(message: types.Message):
     else:
         await message.answer(f"❌ Недостаточно средств.\nМинимум: **1000 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
 
-@dp.message(F.text == "🎰 ИГРАТЬ (Рулетка)")
+@dp.message(F.text == "🎰 ИГРАТЬ")
 async def play_game(message: types.Message):
     user_id = message.from_user.id
-    if not await is_subscribed(user_id): return await message.answer("❌ Подпишитесь на канал!")
+    if not await is_subscribed(user_id): 
+        return await message.answer("❌ Сначала подпишитесь на канал!")
 
     data = await get_user_data(user_id)
-    if data['energy'] <= 0: return await message.answer("🪫 Нет энергии! Приглашай друзей или жди бонус.")
+    if not data: 
+        await add_user(user_id)
+        data = await get_user_data(user_id)
 
+    if data['energy'] <= 0: 
+        return await message.answer("🪫 Нет энергии! Приглашай друзей или жди бонус.")
+
+    # Снимаем энергию
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE users SET energy = energy - 1 WHERE user_id = ?", (user_id,))
         await db.commit()
+
+    # Списки цитат
+    win_quotes = [
+        "«Удача — это когда готовность встречается с возможностью.» — Сенека",
+        "«Победа — это еще не все, все — это постоянное желание побеждать.» — Винс Ломбарди",
+        "«Единственный способ сделать выдающуюся работу — любить то, что вы делаете.» — Стив Джобс",
+        "«Успех — это идти от ошибки к ошибке без потери энтузиазма.» — Уинстон Черчилль"
+    ]
+    
+    lose_quotes = [
+        "«Проигрыш — не потеря семьи, можно пережить.» — Неизвестный",
+        "«Наша величайшая слава не в том, чтобы никогда не падать, а в том, чтобы подниматься каждый раз, когда мы падаем.» — Конфуций",
+        "«Азарт — это страсть, которая губит всё, но оживляет надежду.» — Неизвестный",
+        "«Если ты не проигрываешь, ты не растешь.» — Джастин Бибер",
+        "«Иногда ты выигрываешь, иногда ты учишься.» — Джон Максвелл"
+    ]
 
     msg = await message.answer_dice(emoji="🎰")
     await asyncio.sleep(3.5)
 
     if msg.dice.value in [1, 22, 43, 64]:
-        win = random.randint(30, 100)
+        win = random.randint(15, 100) # Уменьшенные призы
+        quote = random.choice(win_quotes)
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE users SET balance = balance + ?, total_won = total_won + ? WHERE user_id = ?", (win, win, user_id))
-            await db.commit()
-        await message.answer(f"🎉 ПОВЕЗЛО! Выигрыш: **+{win} ⭐**", parse_mode="Markdown")
-    else:
-        await message.answer("💨 Пусто! Попробуй еще раз.")
+            await db.execute("UPDATE users SET balance = balance + ?, total_won = total_won + ? WHERE user_id = ?", 
+                             (win, win, user_id))
 
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
