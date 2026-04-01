@@ -221,6 +221,46 @@ async def ref_handler(message: types.Message):
     link = f"https://t.me/{me.username}?start={message.from_user.id}"
     await message.answer(f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\nПриглашай друзей и получай **+5 ⚡** за каждого!\n\n🔗 Твоя ссылка:\n`{link}`", parse_mode="Markdown")
 
+# 1. Сначала ловим нажатие кнопки
+@dp.message(F.text == "🎫 Промокод")
+async def promo_start_activation(message: types.Message, state: FSMContext):
+    await message.answer("✨ **Активация бонуса**\n\nВведите ваш секретный промокод:", parse_mode="Markdown")
+    await state.set_state(UserStates.waiting_for_promo_activation)
+
+# 2. Ловим само сообщение с кодом
+@dp.message(UserStates.waiting_for_promo_activation)
+async def process_promo_activation(message: types.Message, state: FSMContext):
+    code = message.text.strip()
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        # Ищем живой промокод
+        async with db.execute("SELECT * FROM promos WHERE code = ? AND uses > 0", (code,)) as cursor:
+            promo = await cursor.fetchone()
+            
+            if promo:
+                r_type = promo['reward_type']
+                amount = promo['reward_amount']
+                
+                # Начисляем награду
+                if r_type == "stars":
+                    await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, message.from_user.id))
+                    label = "⭐ Звезд"
+                else:
+                    await db.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (amount, message.from_user.id))
+                    label = "⚡ Энергии"
+                
+                # Уменьшаем количество зарядов промокода
+                await db.execute("UPDATE promos SET uses = uses - 1 WHERE code = ?", (code,))
+                await db.commit()
+                
+                await message.answer(f"✅ **Успешно!**\nВы получили: +{amount} {label}", parse_mode="Markdown")
+            else:
+                await message.answer("❌ **Ошибка!**\nПромокод не существует, либо у него закончились активации.", parse_mode="Markdown")
+    
+    # Выходим из режима ожидания промокода
+    await state.clear()
+    
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -228,6 +268,8 @@ from aiogram.fsm.state import State, StatesGroup
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
     waiting_for_promo = State()
+class UserStates(StatesGroup):
+    waiting_for_promo_activation = State()
 
 # 📢 Кнопка: Рассылка
 @dp.callback_query(F.data == "admin_broadcast", F.from_user.id == ADMIN_ID)
