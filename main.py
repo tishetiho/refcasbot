@@ -79,7 +79,7 @@ def main_menu_kb():
         [types.KeyboardButton(text="🎰 ИГРАТЬ (Рулетка)")],
         [types.KeyboardButton(text="👤 Профиль"), types.KeyboardButton(text="🎁 Бонус")],
         [types.KeyboardButton(text="📊 Статистика"), types.KeyboardButton(text="👥 Рефералы")],
-        [types.KeyboardButton(text="💎 Вывод")]
+        [types.KeyboardButton(text="🎫 Промокод"), types.KeyboardButton(text="💎 Вывод")]
     ]
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
