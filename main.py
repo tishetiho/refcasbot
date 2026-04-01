@@ -8,8 +8,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
-CHANNEL_ID = -1003884251721 
-CHANNEL_URL = "https://t.me/ludomove"
+CHANNELS = [
+    {"id": -1003884251721, "url": "https://t.me/ludomove"},
+]
 DB_NAME = "bot_database.db"
 
 bot = Bot(token=TOKEN)
@@ -61,11 +62,15 @@ async def get_global_stats():
 
 # --- ПРОВЕРКА ПОДПИСКИ ---
 async def is_subscribed(user_id):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return False
+    for channel in CHANNELS:
+        try:
+            member = await bot.get_chat_member(chat_id=channel["id"], user_id=user_id)
+            if member.status not in ["member", "administrator", "creator"]:
+                return False # Если хотя бы в одном не состоит, проверка не прошла
+        except Exception as e:
+            print(f"Ошибка проверки канала {channel['id']}: {e}")
+            return False # Если бота выкинули из админов канала, доступ закрываем
+    return True # Если цикл прошел по всем и не прервался — всё ок
 
 # --- МЕНЮ ---
 def main_menu_kb():
@@ -78,7 +83,6 @@ def main_menu_kb():
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 # --- ОБРАБОТЧИКИ ---
-
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message, command: CommandObject):
     user_id = message.from_user.id
@@ -86,12 +90,15 @@ async def start_cmd(message: types.Message, command: CommandObject):
     await add_user(user_id, ref_id)
     
     if await is_subscribed(user_id):
-        await message.answer("✅ Вы подписаны! Удачи в игре!", reply_markup=main_menu_kb())
+        await message.answer("✅ Вы подписаны на все каналы! Удачи в игре!", reply_markup=main_menu_kb())
     else:
         builder = InlineKeyboardBuilder()
-        builder.row(types.InlineKeyboardButton(text="1. Подписаться", url=CHANNEL_URL))
-        builder.row(types.InlineKeyboardButton(text="2. ✅ Проверить", callback_data="check_sub"))
-        await message.answer("🚀 Для доступа к рулетке подпишись на канал!", reply_markup=builder.as_markup())
+        # Циклом добавляем все каналы из списка
+        for i, channel in enumerate(CHANNELS, 1):
+            builder.row(types.InlineKeyboardButton(text=f"Подписаться на Канал #{i}", url=channel["url"]))
+        
+        builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
+        await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
 
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: types.Message):
