@@ -15,6 +15,7 @@ import time
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
 OFFICIAL_CHANNEL_ID = -1003884251721
+DISCUSSION_GROUP_ID = -1003446103260
 CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove"},
 ]
@@ -169,6 +170,26 @@ async def start_cmd(message: types.Message, command: CommandObject):
         builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
         await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
 
+@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
+async def bonus_in_discussion(message: types.Message):
+    # Проверяем, является ли сообщение автоматическим репостом из канала
+    # (sender_chat существует, если сообщение отправлено от имени канала)
+    if message.sender_chat and message.sender_chat.id == OFFICIAL_CHANNEL_ID:
+        
+        builder = InlineKeyboardBuilder()
+        builder.row(types.InlineKeyboardButton(
+            text="🎁 ЗАБРАТЬ 3 ⚡️", 
+            url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.forward_from_message_id}"
+        ))
+
+        await message.reply(
+            "🎊 **ПЕРВЫЙ БОНУС В ОБСУЖДЕНИИ!**\n\n"
+            "Жми кнопку ниже, чтобы получить +3 энергии прямо сейчас. "
+            "Успей, пока другие не разобрали!",
+            reply_markup=builder.as_markup(),
+            parse_mode="Markdown"
+        )
+        
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
     await message.answer("🛠 **ПАНЕЛЬ УПРАВЛЕНИЯ**\n\nВыбери действие:", reply_markup=admin_kb(), parse_mode="Markdown")
@@ -500,26 +521,6 @@ async def process_promo(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка в формате. Попробуй еще раз.")
     await state.clear()
-
-@dp.channel_post()
-async def edit_post_with_button(message: types.Message):
-    # ПРОВЕРКА: Если пост пришел НЕ из нашего канала — игнорируем
-    if message.chat.id != OFFICIAL_CHANNEL_ID:
-        return
-
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(
-        text="🎁 ЗАБРАТЬ БОНУС (+3 ⚡️)", 
-        url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.message_id}"
-    ))
-
-    try:
-        # Пробуем добавить кнопку к посту
-        await message.edit_reply_markup(reply_markup=builder.as_markup())
-    except Exception as e:
-        # Если пост нельзя редактировать (например, это картинка с подписью, 
-        # которую бот не может тронуть без прав), отправляем сообщение следом
-        await message.answer("👆 Забирай бонус к посту выше!", reply_markup=builder.as_markup())
         
 # 📊 Кнопка: Подробная статистика
 @dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
