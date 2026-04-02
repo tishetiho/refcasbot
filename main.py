@@ -29,6 +29,11 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        # Таблица для контроля получения бонусов под постами
+        await db.execute('''CREATE TABLE IF NOT EXISTS post_bonuses 
+                          (user_id INTEGER, post_id TEXT, PRIMARY KEY (user_id, post_id))''')
+        await db.commit()
+    async with aiosqlite.connect(DB_NAME) as db:
         # Таблица для хранения связей: кто (user_id) пригласил кого (referral_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS referrals 
                           (referrer_id INTEGER, referral_id INTEGER PRIMARY KEY)''')
@@ -178,53 +183,65 @@ async def start_cmd(message: types.Message, command: CommandObject):
     args = command.args
     user_id = message.from_user.id
     
-    # --- СИСТЕМА РЕФЕРАЛОВ (ЗАЩИТА ОТ АБУЗА) ---
+    # --- 1. СИСТЕМА РЕФЕРАЛОВ (ЗАЩИТА ОТ АБУЗА ПЕРЕХОДОВ) ---
     if args and args.isdigit():
         referrer_id = int(args)
-        
-        # Не даем приглашать самого себя
         if referrer_id != user_id:
             async with aiosqlite.connect(DB_NAME) as db:
-                # Проверяем, был ли этот юзер приглашен КЕМ-ЛИБО ранее
+                # Проверяем, был ли этот юзер приглашен кем-либо ранее
                 async with db.execute("SELECT referrer_id FROM referrals WHERE referral_id = ?", (user_id,)) as cursor:
                     already_referred = await cursor.fetchone()
                 
                 if not already_referred:
                     try:
-                        # Фиксируем приглашение (referral_id — PRIMARY KEY, защитит на уровне БД)
+                        # Фиксируем приглашение
                         await db.execute("INSERT INTO referrals (referrer_id, referral_id) VALUES (?, ?)", 
                                          (referrer_id, user_id))
-                        # Начисляем бонус пригласившему
+                        # Начисляем бонус пригласившему (+5 энергии)
                         await db.execute("UPDATE users SET energy = energy + 5 WHERE user_id = ?", (referrer_id,))
                         await db.commit()
                         
-                        # Уведомляем пригласившего
                         try:
                             await bot.send_message(referrer_id, f"🎉 По вашей ссылке зашел новый игрок! Начислено **+5 ⚡️**", parse_mode="Markdown")
                         except:
                             pass
                     except Exception as e:
-                        print(f"Ошибка при записи реферала: {e}")
-    # ------------------------------------------
+                        print(f"Ошибка реф-системы: {e}")
 
-    # Твоя существующая логика добавления юзера
-    await add_user(user_id) # ref_id убираем из аргументов, так как теперь пишем в таблицу referrals
+    # Добавление юзера в общую таблицу (твоя функция)
+    await add_user(user_id)
     
-    # Твоя система бонусов за посты (без изменений)
+    # --- 2. СИСТЕМА БОНУСОВ ЗА ПОСТЫ (ЗАЩИТА ОТ ПОВТОРНЫХ НАЖАТИЙ) ---
     if args and args.startswith("post_bonus_"):
         post_id = args.split("_")[-1]
+        
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
-            await db.commit()
-        await message.answer(f"✅ Ты успешно забрал бонус за пост №{post_id}!\nНачислено: **+3 ⚡️ энергии**.", parse_mode="Markdown")
-    
-    # Проверка подписки (без изменений)
+            # ПРОВЕРКА: забирал ли юзер уже бонус за ЭТОТ конкретный пост
+            async with db.execute("SELECT 1 FROM post_bonuses WHERE user_id = ? AND post_id = ?", 
+                                 (user_id, post_id)) as cursor:
+                already_taken = await cursor.fetchone()
+            
+            if already_taken:
+                await message.answer("❌ Ты уже забирал бонус за этот пост! Повторно получить нельзя. 😉")
+            else:
+                try:
+                    # Записываем в историю и начисляем +3 энергии
+                    await db.execute("INSERT INTO post_bonuses (user_id, post_id) VALUES (?, ?)", (user_id, post_id))
+                    await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
+                    await db.commit()
+                    
+                    await message.answer(f"✅ Успешно! За пост №{post_id} начислено **+3 ⚡️ энергии**.", parse_mode="Markdown")
+                except Exception as e:
+                    print(f"Ошибка при выдаче бонуса: {e}")
+
+    # --- 3. ПРОВЕРКА ПОДПИСКИ И МЕНЮ ---
     if await is_subscribed(user_id):
         await message.answer("✅ Спасибо за подписку! Удачи в игре!", reply_markup=main_menu_kb())
     else:
         builder = InlineKeyboardBuilder()
         for i, channel in enumerate(CHANNELS, 1):
             builder.row(types.InlineKeyboardButton(text=f"Подписаться на Канал #{i}", url=channel["url"]))
+        
         builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
         await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
         
