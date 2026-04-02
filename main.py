@@ -512,12 +512,10 @@ async def ref_handler(message: types.Message):
 
 # Состояния для админки
 class AdminStates(StatesGroup):
+    waiting_for_broadcast_text = State()
     waiting_for_broadcast = State()
     waiting_for_promo = State()
 
-class AdminStates(StatesGroup):
-    waiting_for_broadcast_text = State()
-    
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
 
