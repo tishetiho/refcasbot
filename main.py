@@ -21,7 +21,8 @@ CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove"},
 ]
 ADMIN_ID = 5078764886
-DB_NAME = "bot_database.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, "data", "bot_database.db")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
