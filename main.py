@@ -29,6 +29,10 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        # Таблица для хранения ID чатов/групп
+        await db.execute('''CREATE TABLE IF NOT EXISTS groups 
+                          (chat_id INTEGER PRIMARY KEY, chat_name TEXT)''')
+    async with aiosqlite.connect(DB_NAME) as db:
         # Таблица для контроля получения бонусов под постами
         await db.execute('''CREATE TABLE IF NOT EXISTS post_bonuses 
                           (user_id INTEGER, post_id TEXT, PRIMARY KEY (user_id, post_id))''')
@@ -174,6 +178,7 @@ async def admin_kb():
     builder.row(types.InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
     builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
+    builder.row(types.InlineKeyboardButton(text="📢 Рассылка по чатам", callback_data="broadcast_chats"))
     
     return builder.as_markup()
     
@@ -509,9 +514,42 @@ async def ref_handler(message: types.Message):
 class AdminStates(StatesGroup):
     waiting_for_broadcast = State()
     waiting_for_promo = State()
+
+class AdminStates(StatesGroup):
+    waiting_for_broadcast_text = State()
     
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
+
+@dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
+async def process_broadcast(message: types.Message, state: FSMContext):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT chat_id FROM groups") as cursor:
+            chats = await cursor.fetchall()
+
+    if not chats:
+        await message.answer("❌ В базе пока нет ни одного чата.")
+        await state.clear()
+        return
+
+    count = 0
+    errors = 0
+    
+    msg = await message.answer(f"🚀 Начинаю рассылку по {len(chats)} чатам...")
+
+    for (chat_id,) in chats:
+        try:
+            # Копируем сообщение (текст, фото, видео — не важно)
+            await message.copy_to(chat_id=chat_id)
+            count += 1
+            # Небольшая пауза, чтобы Telegram не забанил за спам
+            await asyncio.sleep(0.05) 
+        except Exception as e:
+            errors += 1
+            print(f"Ошибка отправки в {chat_id}: {e}")
+
+    await msg.edit_text(f"✅ Рассылка завершена!\n\n📈 Успешно: {count}\n⚠️ Ошибок: {errors}")
+    await state.clear()
     
 # 1. Сначала ловим нажатие кнопки
 @dp.message(F.text == "🎫 Промокод")
@@ -552,6 +590,12 @@ async def process_promo_activation(message: types.Message, state: FSMContext):
     
     # Выходим из режима ожидания промокода
     await state.clear()
+
+@dp.callback_query(F.data == "broadcast_chats", F.from_user.id == ADMIN_ID)
+async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите текст рассылки (можно с фото):")
+    await state.set_state(AdminStates.waiting_for_broadcast_text)
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("claim_"))
 async def claim_check(callback: types.CallbackQuery):
@@ -647,7 +691,16 @@ async def toggle_bonuses_callback(callback: types.CallbackQuery):
     # Обновляем сообщение админа с новой кнопкой
     await callback.message.edit_reply_markup(reply_markup=await get_admin_kb())
     await callback.answer(f"Статус бонусов изменен на {'ВКЛ' if new_status else 'ВЫКЛ'}")
-    
+
+@dp.my_chat_member()
+async def on_my_chat_member(update: types.ChatMemberUpdated):
+    # Если бота добавили в чат как участника или администратора
+    if update.new_chat_member.status in ["member", "administrator"]:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("INSERT OR IGNORE INTO groups (chat_id, chat_name) VALUES (?, ?)", 
+                             (update.chat.id, update.chat.title))
+            await db.commit()
+            
 # 🎫 Кнопка: Создать промокод
 @dp.callback_query(F.data == "admin_add_promo", F.from_user.id == ADMIN_ID)
 async def start_promo(callback: types.CallbackQuery, state: FSMContext):
