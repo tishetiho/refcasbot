@@ -29,6 +29,16 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        # Таблица самих заданий
+        await db.execute('''CREATE TABLE IF NOT EXISTS tasks 
+                          (task_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                           title TEXT, url TEXT, channel_id TEXT, reward INTEGER)''')
+        
+        # Таблица выполненных заданий (чтобы не абузили)
+        await db.execute('''CREATE TABLE IF NOT EXISTS completed_tasks 
+                          (user_id INTEGER, task_id INTEGER, PRIMARY KEY (user_id, task_id))''')
+        await db.commit()
+    async with aiosqlite.connect(DB_NAME) as db:
         # Таблица для хранения ID чатов/групп
         await db.execute('''CREATE TABLE IF NOT EXISTS groups 
                           (chat_id INTEGER PRIMARY KEY, chat_name TEXT)''')
@@ -179,6 +189,8 @@ async def admin_kb():
     builder.row(types.InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast"))
     builder.row(types.InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin_add_promo"))
     builder.row(types.InlineKeyboardButton(text="📢 Рассылка по чатам", callback_data="broadcast_chats"))
+    builder.row(types.InlineKeyboardButton(text="🗑 Удалить задание", callback_data="admin_manage_tasks"))
+    builder.row(types.InlineKeyboardButton(text="➕ Добавить задание", callback_data="admin_add_task"))
     
     return builder.as_markup()
     
@@ -515,10 +527,150 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast_text = State()
     waiting_for_broadcast = State()
     waiting_for_promo = State()
+    waiting_for_task_title = State()
+    waiting_for_task_url = State()
+    waiting_for_task_reward = State()
+    waiting_for_task_channel_id = State()
 
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
 
+@dp.callback_query(F.data == "admin_add_task", F.from_user.id == ADMIN_ID)
+async def add_task_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите название задания (например: Подпишись на канал спонсора):")
+    await state.set_state(AdminStates.waiting_for_task_title)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_task_title)
+async def add_task_title(message: types.Message, state: FSMContext):
+    await state.update_data(title=message.text)
+    await message.answer("Отправьте ссылку на канал (https://t.me/...):")
+    await state.set_state(AdminStates.waiting_for_task_url)
+
+@dp.message(AdminStates.waiting_for_task_url)
+async def add_task_url(message: types.Message, state: FSMContext):
+    await state.update_data(url=message.text)
+    await message.answer("Введите ID канала (например: -1001234567). Бот должен быть там админом!")
+    await state.set_state(AdminStates.waiting_for_task_channel_id)
+
+@dp.message(AdminStates.waiting_for_task_channel_id)
+async def add_task_channel(message: types.Message, state: FSMContext):
+    await state.update_data(channel_id=message.text)
+    await message.answer("Введите награду (количество энергии):")
+    await state.set_state(AdminStates.waiting_for_task_reward)
+
+@dp.message(AdminStates.waiting_for_task_reward)
+async def add_task_final(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        return await message.answer("Введите число!")
+    
+    data = await state.get_data()
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("INSERT INTO tasks (title, url, channel_id, reward) VALUES (?, ?, ?, ?)",
+                         (data['title'], data['url'], data['channel_id'], int(message.text)))
+        await db.commit()
+    
+    await message.answer("✅ Задание успешно добавлено!")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_manage_tasks", F.from_user.id == ADMIN_ID)
+async def admin_manage_tasks(callback: types.CallbackQuery):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT task_id, title, reward FROM tasks") as cursor:
+            tasks = await cursor.fetchall()
+
+    if not tasks:
+        return await callback.answer("📭 Список заданий пуст!", show_alert=True)
+
+    builder = InlineKeyboardBuilder()
+    for task_id, title, reward in tasks:
+        builder.row(types.InlineKeyboardButton(
+            text=f"❌ {title} ({reward}⚡️)", 
+            callback_data=f"admin_delete_task_{task_id}"
+        ))
+    
+    builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")) # Кнопка возврата в меню
+    
+    await callback.message.edit_text("Выберите задание, которое хотите удалить:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("admin_delete_task_"), F.from_user.id == ADMIN_ID)
+async def admin_confirm_delete_task(callback: types.CallbackQuery):
+    task_id = int(callback.data.split("_")[-1])
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Удаляем само задание
+        await db.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        # Удаляем историю выполнений, чтобы не засорять базу
+        await db.execute("DELETE FROM completed_tasks WHERE task_id = ?", (task_id,))
+        await db.commit()
+    
+    await callback.answer("✅ Задание успешно удалено!")
+    # Обновляем список после удаления
+    await admin_manage_tasks(callback)
+
+@dp.message(F.text == "📜 Задания")
+async def show_tasks(message: types.Message):
+    user_id = message.from_user.id
+    builder = InlineKeyboardBuilder()
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Показываем только те задания, которые юзер еще не выполнил
+        async with db.execute('''SELECT task_id, title, reward FROM tasks 
+                                 WHERE task_id NOT IN (SELECT task_id FROM completed_tasks WHERE user_id = ?)''', 
+                              (user_id,)) as cursor:
+            tasks = await cursor.fetchall()
+
+    if not tasks:
+        return await message.answer("🎉 Ты выполнил все доступные задания! Приходи позже.")
+
+    for task_id, title, reward in tasks:
+        builder.row(types.InlineKeyboardButton(
+            text=f"{title} (+{reward}⚡️)", 
+            callback_data=f"view_task_{task_id}"
+        ))
+    
+    await message.answer("выбери задание для выполнения:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("view_task_"))
+async def view_task(callback: types.CallbackQuery):
+    task_id = int(callback.data.split("_")[-1])
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT title, url, reward FROM tasks WHERE task_id = ?", (task_id,)) as cursor:
+            task = await cursor.fetchone()
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="🔗 Перейти в канал", url=task[1]))
+    builder.row(types.InlineKeyboardButton(text="✅ Проверить подписку", callback_data=f"check_task_{task_id}"))
+    
+    await callback.message.edit_text(f"📝 Задание: {task[0]}\n💰 Награда: {task[2]}⚡️", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("check_task_"))
+async def check_task(callback: types.CallbackQuery):
+    task_id = int(callback.data.split("_")[-1])
+    user_id = callback.from_user.id
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT channel_id, reward FROM tasks WHERE task_id = ?", (task_id,)) as cursor:
+            task = await cursor.fetchone()
+            
+    # Проверяем подписку через метод get_chat_member
+    try:
+        member = await bot.get_chat_member(chat_id=task[0], user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            async with aiosqlite.connect(DB_NAME) as db:
+                # Начисляем награду и помечаем как выполнено
+                await db.execute("INSERT INTO completed_tasks (user_id, task_id) VALUES (?, ?)", (user_id, task_id))
+                await db.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (task[1], user_id))
+                await db.commit()
+            
+            await callback.message.edit_text(f"✅ Задание выполнено! Начислено {task[1]}⚡️")
+            await callback.answer("Успешно!")
+        else:
+            await callback.answer("❌ Ты не подписался на канал!", show_alert=True)
+    except Exception as e:
+        await callback.answer("⚠️ Ошибка: бот не является администратором в этом канале.", show_alert=True)
+        
 @dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
 async def process_broadcast(message: types.Message, state: FSMContext):
     async with aiosqlite.connect(DB_NAME) as db:
