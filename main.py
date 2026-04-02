@@ -29,15 +29,11 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        # Таблица самих заданий
-        await db.execute('''CREATE TABLE IF NOT EXISTS tasks 
-                          (task_id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                           title TEXT, url TEXT, channel_id TEXT, reward INTEGER)''')
-        
-        # Таблица выполненных заданий (чтобы не абузили)
-        await db.execute('''CREATE TABLE IF NOT EXISTS completed_tasks 
-                          (user_id INTEGER, task_id INTEGER, PRIMARY KEY (user_id, task_id))''')
-        await db.commit()
+    # 1. Записываем выполнение
+    await db.execute("INSERT INTO completed_tasks (user_id, task_id) VALUES (?, ?)", (user_id, task_id))
+    # 2. Начисляем энергию
+    await db.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (task[1], user_id))
+    await db.commit() 
     async with aiosqlite.connect(DB_NAME) as db:
         # Таблица для хранения ID чатов/групп
         await db.execute('''CREATE TABLE IF NOT EXISTS groups 
