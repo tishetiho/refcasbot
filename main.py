@@ -160,7 +160,7 @@ class ThrottlingMiddleware(BaseMiddleware):
 # --- МЕНЮ ---
 def main_menu_kb():
     kb = [
-        [types.KeyboardButton(text="🎰 ИГРАТЬ (Рулетка)")],
+        [types.KeyboardButton(text="🎰 ИГРАТЬ (Рулетка)"), types.KeyboardButton(text="📜 Задания")],
         [types.KeyboardButton(text="👤 Профиль"), types.KeyboardButton(text="🎁 Бонус")],
         [types.KeyboardButton(text="📊 Статистика"), types.KeyboardButton(text="👥 Рефералы")],
         [types.KeyboardButton(text="🎫 Промокод"), types.KeyboardButton(text="💎 Вывод")]
