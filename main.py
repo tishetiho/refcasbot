@@ -656,7 +656,7 @@ async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # Обработка самого текста рассылки
-@dp.message(AdminStates.waiting_for_broadcast, F.from_user.id == ADMIN_ID)
+@dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
 async def process_broadcast(message: types.Message, state: FSMContext):
     text = message.text
     async with aiosqlite.connect(DB_NAME) as db:
