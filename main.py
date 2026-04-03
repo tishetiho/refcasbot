@@ -74,6 +74,9 @@ async def init_db():
                            referred_by INTEGER,
                            total_won INTEGER DEFAULT 0,
                            last_bonus TEXT DEFAULT '2000-01-01 00:00:00')''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS sub_channels 
+                          (channel_id INTEGER PRIMARY KEY, url TEXT, name TEXT)''')
+        await db.commit()
         
         # ПРОВЕРКА: Если ты запускал старую версию, добавим колонку last_bonus вручную
         try:
@@ -120,15 +123,41 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     return True
     
 async def is_subscribed(user_id):
-    for channel in CHANNELS:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT channel_id FROM sub_channels") as cursor:
+            rows = await cursor.fetchall()
+    
+    # Если в базе нет каналов, подписка считается оформленной
+    if not rows:
+        return True
+
+    for (ch_id,) in rows:
         try:
-            member = await bot.get_chat_member(chat_id=channel["id"], user_id=user_id)
+            member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
-                return False # Если хотя бы в одном не состоит, проверка не прошла
+                return False
         except Exception as e:
-            print(f"Ошибка проверки канала {channel['id']}: {e}")
-            return False # Если бота выкинули из админов канала, доступ закрываем
-    return True # Если цикл прошел по всем и не прервался — всё ок
+            print(f"Ошибка проверки канала {ch_id}: {e}")
+            return False
+    return True
+
+@dp.callback_query(F.data == "check_sub")
+async def check_cb(callback: types.CallbackQuery):
+    if await is_subscribed(callback.from_user.id):
+        await callback.message.delete()
+        await callback.message.answer("🎉 Подписка подтверждена!", reply_markup=main_menu_kb())
+    else:
+        # Формируем сообщение с актуальными кнопками из БД
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT url, name FROM sub_channels") as cursor:
+                channels = await cursor.fetchall()
+        
+        builder = InlineKeyboardBuilder()
+        for url, name in channels:
+            builder.row(types.InlineKeyboardButton(text=name, url=url))
+        builder.row(types.InlineKeyboardButton(text="✅ Проверить подписки", callback_data="check_sub"))
+        
+        await callback.answer("❌ Вы всё еще не подписаны!", show_alert=True)
 
 class ThrottlingMiddleware(BaseMiddleware):
     def __init__(self, slow_mode_delay: float = 0.7):
@@ -193,7 +222,9 @@ async def admin_kb():
     builder.row(types.InlineKeyboardButton(text="📢 Рассылка по чатам", callback_data="broadcast_chats"))
     builder.row(types.InlineKeyboardButton(text="🗑 Удалить задание", callback_data="admin_manage_tasks"))
     builder.row(types.InlineKeyboardButton(text="➕ Добавить задание", callback_data="admin_add_task"))
-    
+    builder.row(types.InlineKeyboardButton(text="➕ Добавить канал подписки", callback_data="admin_add_sub_channel"))
+    builder.row(types.InlineKeyboardButton(text="🗑 Удалить канал подписки", callback_data="admin_list_sub_channels"))
+
     return builder.as_markup()
     
 # --- ОБРАБОТЧИКИ ---
@@ -533,6 +564,9 @@ class AdminStates(StatesGroup):
     waiting_for_task_url = State()
     waiting_for_task_reward = State()
     waiting_for_task_channel_id = State()
+    waiting_for_sub_channel_id = State()
+    waiting_for_sub_channel_url = State()
+    waiting_for_sub_channel_name = State()
 
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
@@ -672,7 +706,64 @@ async def check_task(callback: types.CallbackQuery):
             await callback.answer("❌ Ты не подписался на канал!", show_alert=True)
     except Exception as e:
         await callback.answer("⚠️ Ошибка: бот не является администратором в этом канале.", show_alert=True)
-        
+
+    # --- УПРАВЛЕНИЕ КАНАЛАМИ ПОДПИСКИ ---
+@dp.callback_query(F.data == "admin_add_sub_channel", F.from_user.id == ADMIN_ID)
+async def add_sub_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите ID канала (например: -100123456789):")
+    await state.set_state(AdminStates.waiting_for_sub_channel_id)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_for_sub_channel_id)
+async def add_sub_id(message: types.Message, state: FSMContext):
+    await state.update_data(ch_id=message.text)
+    await message.answer("Введите ссылку на канал (https://t.me/...):")
+    await state.set_state(AdminStates.waiting_for_sub_channel_url)
+
+@dp.message(AdminStates.waiting_for_sub_channel_url)
+async def add_sub_url(message: types.Message, state: FSMContext):
+    await state.update_data(url=message.text)
+    await message.answer("Введите название для кнопки (например: Наш спонсор):")
+    await state.set_state(AdminStates.waiting_for_sub_channel_name)
+
+@dp.message(AdminStates.waiting_for_sub_channel_name)
+async def add_sub_final(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    try:
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("INSERT INTO sub_channels (channel_id, url, name) VALUES (?, ?, ?)",
+                             (int(data['ch_id']), data['url'], message.text))
+            await db.commit()
+        await message.answer("✅ Канал успешно добавлен в обязательную подписку!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_list_sub_channels", F.from_user.id == ADMIN_ID)
+async def list_sub_channels(callback: types.CallbackQuery):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT channel_id, name FROM sub_channels") as cursor:
+            channels = await cursor.fetchall()
+    
+    if not channels:
+        return await callback.answer("Список каналов пуст!", show_alert=True)
+    
+    builder = InlineKeyboardBuilder()
+    for ch_id, name in channels:
+        builder.row(types.InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"del_sub_{ch_id}"))
+    builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back"))
+    
+    await callback.message.edit_text("Список каналов для подписки:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("del_sub_"), F.from_user.id == ADMIN_ID)
+async def delete_sub_channel(callback: types.CallbackQuery):
+    ch_id = int(callback.data.split("_")[2])
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM sub_channels WHERE channel_id = ?", (ch_id,))
+        await db.commit()
+    await callback.answer("Канал удален!")
+    await list_sub_channels(callback)
+    
 @dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
 async def process_broadcast(message: types.Message, state: FSMContext):
     async with aiosqlite.connect(DB_NAME) as db:
