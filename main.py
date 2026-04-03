@@ -808,24 +808,38 @@ async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # Обработка самого текста рассылки
-@dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
-async def process_broadcast(message: types.Message, state: FSMContext):
-    text = message.text
+@dp.message(AdminStates.waiting_for_broadcast, F.from_user.id == ADMIN_ID)
+async def process_broadcast_to_users(message: types.Message, state: FSMContext):
+    # Берем список всех ID пользователей
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT user_id FROM users") as cursor:
             users = await cursor.fetchall()
     
-    await message.answer(f"⏳ Начинаю рассылку на {len(users)} чел...")
-    count = 0
-    for row in users:
-        try:
-            await bot.send_message(row[0], text)
-            count += 1
-            await asyncio.sleep(0.05)
-        except: pass
+    if not users:
+        await message.answer("❌ Пользователей в базе нет.")
+        await state.clear()
+        return
+
+    status_msg = await message.answer(f"⏳ Начинаю рассылку пользователям ({len(users)} чел.)...")
     
-    await message.answer(f"✅ Готово! Получили: {count}")
-    await state.clear()
+    count = 0
+    blocked = 0
+    
+    for (user_id,) in users:
+        try:
+            # Копируем любое сообщение (текст, фото, видео)
+            await message.copy_to(chat_id=user_id)
+            count += 1
+            await asyncio.sleep(0.05) # Пауза, чтобы не словить бан от ТГ
+        except Exception:
+            blocked += 1
+    
+    await status_msg.edit_text(
+        f"✅ **Рассылка по пользователям завершена!**\n\n"
+        f"👤 Получили: {count}\n"
+        f"🚫 Заблокировали бота: {blocked}"
+    )
+    await state.clear() # Сбрасываем состояние, чтобы бот снова слушала команды
 
 @dp.callback_query(F.data == "toggle_bonuses", F.from_user.id == ADMIN_ID)
 async def toggle_bonuses_callback(callback: types.CallbackQuery):
