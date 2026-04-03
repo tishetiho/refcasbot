@@ -255,7 +255,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
 
     # --- 3. ПРОВЕРКА ПОДПИСКИ И МЕНЮ ---
     if await is_subscribed(user_id):
-        await message.answer("✅ Спасибо за подписку! Удачи в игре!", reply_markup=main_menu_kb())
+        await message.answer("<tg-emoji emoji-id="5366215766930662068">🎁</tg-emoji> Спасибо за подписку! Удачи в игре!", parse_mode=HTML, reply_markup=main_menu_kb())
     else:
         builder = InlineKeyboardBuilder()
         for i, channel in enumerate(CHANNELS, 1):
