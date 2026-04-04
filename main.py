@@ -121,7 +121,6 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     return True
     
 async def is_subscribed(user_id):
-async def is_subscribed(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT channel_id FROM sub_channels") as cursor:
             rows = await cursor.fetchall()
