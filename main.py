@@ -22,6 +22,8 @@ CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove"},
 ]
 ADMIN_ID = 5078764886
+KNB_TIMEOUT = 120  # 2 минуты на ход
+KNB_COMMISSION = 0.05 # 5% комиссия
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, "data", "bot_database.db")
 
