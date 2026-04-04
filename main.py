@@ -707,13 +707,26 @@ async def admin_confirm_delete_task(callback: types.CallbackQuery):
 
 @dp.message(F.text == "📜 Задания")
 async def show_tasks(message: types.Message):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
-        )
     user_id = message.from_user.id
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start",
+            parse_mode="Markdown"
+        )
+    # -------------------------
+
     builder = InlineKeyboardBuilder()
+    
+    # Дальше идет твой старый код формирования списка заданий...
+    # Например:
+    # builder.row(types.InlineKeyboardButton(text="Сделать репост", callback_data="task_repost"))
+    
+    await message.answer("📜 **ДОСТУПНЫЕ ЗАДАНИЯ**\n\nВыполняйте задания и получайте ⚡ Энергию и ⭐ Звезды!", 
+                         reply_markup=builder.as_markup(),
+                         parse_mode="Markdown")
     
     async with aiosqlite.connect(DB_NAME) as db:
         # Показываем только те задания, которые юзер еще не выполнил
@@ -886,12 +899,22 @@ async def process_broadcast(message: types.Message, state: FSMContext):
 # 1. Сначала ловим нажатие кнопки
 @dp.message(F.text == "🎫 Промокод")
 async def promo_start_activation(message: types.Message, state: FSMContext):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
+    user_id = message.from_user.id
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start"
+            parse_mode="Markdown"
         )
-    await message.answer("✨ **Активация бонуса**\n\nВведите ваш секретный промокод:", parse_mode="Markdown")
+    # -------------------------
+
+    await message.answer(
+        "✨ **Активация бонуса**\n\n"
+        "Введите ваш секретный промокод:", 
+        parse_mode="Markdown"
+    )
     await state.set_state(UserStates.waiting_for_promo_activation)
 
 # 2. Ловим само сообщение с кодом
