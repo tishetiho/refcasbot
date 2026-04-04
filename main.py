@@ -18,7 +18,6 @@ import time
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
 OFFICIAL_CHANNEL_ID = -1003884251721
 DISCUSSION_GROUP_ID = -1003446103260
-CHANNELS = []
 ADMIN_ID = 5078764886
 KNB_TIMEOUT = 120  # 2 минуты на ход
 KNB_COMMISSION = 0.05 # 5% комиссия
@@ -120,20 +119,22 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     
 async def is_subscribed(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
-        # Берем каналы ТОЛЬКО из таблицы sub_channels
         async with db.execute("SELECT channel_id FROM sub_channels") as cursor:
             rows = await cursor.fetchall()
     
+    # Если админ не добавил каналы, проверка всегда успешна (чтобы бот не блокировался)
     if not rows:
-        return True # Если в админке пусто — пускаем всех
+        return True
 
     for (ch_id,) in rows:
         try:
             member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
-        except:
-            continue
+        except Exception as e:
+            # Если бот не админ в канале, временно считаем, что юзер подписан на этот канал
+            print(f"Ошибка API в канале {ch_id}: {e}")
+            continue 
     return True
 
 @dp.callback_query(F.data == "check_sub")
@@ -227,26 +228,21 @@ async def admin_kb():
 async def start_cmd(message: types.Message, command: CommandObject):
     args = command.args
     user_id = message.from_user.id
-    referrer_id = None
     
-    # --- 1. СИСТЕМА РЕФЕРАЛОВ (ЗАЩИТА ОТ АБУЗА ПЕРЕХОДОВ) ---
+    # --- 1. СИСТЕМА РЕФЕРАЛОВ ---
     if args and args.isdigit():
         referrer_id = int(args)
         if referrer_id != user_id:
             async with aiosqlite.connect(DB_NAME) as db:
-                # Проверяем, был ли этот юзер приглашен кем-либо ранее
                 async with db.execute("SELECT referrer_id FROM referrals WHERE referral_id = ?", (user_id,)) as cursor:
                     already_referred = await cursor.fetchone()
                 
                 if not already_referred:
                     try:
-                        # Фиксируем приглашение
                         await db.execute("INSERT INTO referrals (referrer_id, referral_id) VALUES (?, ?)", 
                                          (referrer_id, user_id))
-                        # Начисляем бонус пригласившему (+5 энергии)
                         await db.execute("UPDATE users SET energy = energy + 5 WHERE user_id = ?", (referrer_id,))
                         await db.commit()
-                        
                         try:
                             await bot.send_message(referrer_id, f"🎉 По вашей ссылке зашел новый игрок! Начислено **+5 ⚡️**", parse_mode="Markdown")
                         except:
@@ -254,43 +250,54 @@ async def start_cmd(message: types.Message, command: CommandObject):
                     except Exception as e:
                         print(f"Ошибка реф-системы: {e}")
 
-    # Добавление юзера в общую таблицу (твоя функция)
-    await add_user(user_id, message.from_user.is_premium, referrer_id)
+    # Добавление юзера в базу (если его там нет)
+    await add_user(user_id)
     
-    # --- 2. СИСТЕМА БОНУСОВ ЗА ПОСТЫ (ЗАЩИТА ОТ ПОВТОРНЫХ НАЖАТИЙ) ---
+    # --- 2. СИСТЕМА БОНУСОВ ЗА ПОСТЫ ---
     if args and args.startswith("post_bonus_"):
         post_id = args.split("_")[-1]
-        
         async with aiosqlite.connect(DB_NAME) as db:
-            # ПРОВЕРКА: забирал ли юзер уже бонус за ЭТОТ конкретный пост
             async with db.execute("SELECT 1 FROM post_bonuses WHERE user_id = ? AND post_id = ?", 
                                  (user_id, post_id)) as cursor:
                 already_taken = await cursor.fetchone()
             
             if already_taken:
-                await message.answer("❌ Ты уже забирал бонус за этот пост! Повторно получить нельзя. 😉")
+                await message.answer("❌ Ты уже забирал бонус за этот пост!")
             else:
-                try:
-                    # Записываем в историю и начисляем +3 энергии
-                    await db.execute("INSERT INTO post_bonuses (user_id, post_id) VALUES (?, ?)", (user_id, post_id))
-                    await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
-                    await db.commit()
-                    
-                    await message.answer(f"✅ Успешно! За пост №{post_id} начислено **+3 ⚡️ энергии**.", parse_mode="Markdown")
-                except Exception as e:
-                    print(f"Ошибка при выдаче бонуса: {e}")
+                await db.execute("INSERT INTO post_bonuses (user_id, post_id) VALUES (?, ?)", (user_id, post_id))
+                await db.execute("UPDATE users SET energy = energy + 3 WHERE user_id = ?", (user_id,))
+                await db.commit()
+                await message.answer(f"✅ Начислено **+3 ⚡️** за пост №{post_id}", parse_mode="Markdown")
 
-    # --- 3. ПРОВЕРКА ПОДПИСКИ И МЕНЮ ---
+    # --- 3. УМНАЯ ПРОВЕРКА ПОДПИСКИ (ИСПРАВЛЕННАЯ) ---
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT COUNT(*) FROM sub_channels") as cursor:
+            res = await cursor.fetchone()
+            channels_count = res[0] if res else 0
+
+    # Если каналов в ОП нет — сразу в меню
+    if channels_count == 0:
+        return await message.answer("✅ Добро пожаловать! Удачи в игре!", reply_markup=main_menu_kb())
+
+    # Если каналы есть — проверяем подписку
     if await is_subscribed(user_id):
-        await message.answer("✅ Спасибо за подписку! Удачи в игре!", reply_markup=main_menu_kb())
+        await message.answer("✅ С возвращением! Все подписки проверены.", reply_markup=main_menu_kb())
     else:
+        # Если не подписан — формируем кнопки из базы
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT url, name FROM sub_channels") as cursor:
+                rows = await cursor.fetchall()
+        
         builder = InlineKeyboardBuilder()
-        for i, channel in enumerate(CHANNELS, 1):
-            builder.row(types.InlineKeyboardButton(text=f"Подписаться на Канал #{i}", url=channel["url"]))
+        for url, name in rows:
+            builder.row(types.InlineKeyboardButton(text=name, url=url))
         
-        builder.row(types.InlineKeyboardButton(text="✅ Проверить все подписки", callback_data="check_sub"))
-        await message.answer("🚀 Чтобы начать игру, нужно подписаться на все наши ресурсы:", reply_markup=builder.as_markup())
+        builder.row(types.InlineKeyboardButton(text="✅ Проверить подписки", callback_data="check_sub"))
         
+        await message.answer(
+            "🚀 **Чтобы начать игру, нужно подписаться на наши ресурсы:**",
+            reply_markup
+                
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
     await message.answer("🛠 **ПАНЕЛЬ УПРАВЛЕНИЯ**\n\nВыбери действие:", reply_markup=await admin_kb(), parse_mode="Markdown")
