@@ -121,22 +121,25 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     return True
     
 async def is_subscribed(user_id):
+async def is_subscribed(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT channel_id FROM sub_channels") as cursor:
             rows = await cursor.fetchall()
     
-    # Если в базе нет каналов, подписка считается оформленной
     if not rows:
         return True
 
-    for (ch_id,) in rows:
+    for row in rows:
+        ch_id = row[0]
         try:
             member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except Exception as e:
+            # Если бота кикнули из канала-админа, он не сможет проверить подписку. 
+            # В этом случае пропускаем канал, чтобы бот не "умер"
             print(f"Ошибка проверки канала {ch_id}: {e}")
-            return False
+            continue 
     return True
 
 @dp.callback_query(F.data == "check_sub")
@@ -715,10 +718,16 @@ async def add_sub_start(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.waiting_for_sub_channel_id)
 async def add_sub_id(message: types.Message, state: FSMContext):
-    await state.update_data(ch_id=message.text)
-    await message.answer("Введите ссылку на канал (https://t.me/...):")
-    await state.set_state(AdminStates.waiting_for_sub_channel_url)
-
+    # Убираем лишние пробелы и проверяем, что это число (ID канала всегда числовое)
+    raw_id = message.text.strip()
+    try:
+        ch_id = int(raw_id)
+        await state.update_data(ch_id=ch_id)
+        await message.answer("Отправьте ссылку на канал (https://t.me/...):")
+        await state.set_state(AdminStates.waiting_for_sub_channel_url)
+    except ValueError:
+        await message.answer("❌ Ошибка: ID канала должен быть числом (например, -100123456789).")
+        
 @dp.message(AdminStates.waiting_for_sub_channel_url)
 async def add_sub_url(message: types.Message, state: FSMContext):
     await state.update_data(url=message.text)
@@ -730,12 +739,15 @@ async def add_sub_final(message: types.Message, state: FSMContext):
     data = await state.get_data()
     try:
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("INSERT INTO sub_channels (channel_id, url, name) VALUES (?, ?, ?)",
-                             (int(data['ch_id']), data['url'], message.text))
+            # Используем INSERT OR REPLACE, чтобы обновить данные, если ID совпадает
+            await db.execute(
+                "INSERT OR REPLACE INTO sub_channels (channel_id, url, name) VALUES (?, ?, ?)",
+                (data['ch_id'], data['url'], message.text.strip())
+            )
             await db.commit()
-        await message.answer("✅ Канал успешно добавлен в обязательную подписку!")
+        await message.answer(f"✅ Канал «{message.text}» успешно добавлен/обновлен!")
     except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
+        await message.answer(f"❌ Ошибка БД: {e}")
     await state.clear()
 
 @dp.callback_query(F.data == "admin_list_sub_channels", F.from_user.id == ADMIN_ID)
@@ -756,11 +768,12 @@ async def list_sub_channels(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("del_sub_"), F.from_user.id == ADMIN_ID)
 async def delete_sub_channel(callback: types.CallbackQuery):
-    ch_id = int(callback.data.split("_")[2])
+    # Безопасное извлечение ID (все, что после 'del_sub_')
+    ch_id = int(callback.data.replace("del_sub_", ""))
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM sub_channels WHERE channel_id = ?", (ch_id,))
         await db.commit()
-    await callback.answer("Канал удален!")
+    await callback.answer("✅ Канал удален из списка ОП")
     await list_sub_channels(callback)
     
 @dp.message(AdminStates.waiting_for_broadcast_text, F.from_user.id == ADMIN_ID)
