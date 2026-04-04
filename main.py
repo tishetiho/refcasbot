@@ -76,6 +76,10 @@ async def init_db():
                            last_bonus TEXT DEFAULT '2000-01-01 00:00:00')''')
         await db.execute('''CREATE TABLE IF NOT EXISTS sub_channels 
                           (channel_id INTEGER PRIMARY KEY, url TEXT, name TEXT)''')
+                try:
+            await db.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
+        except:
+            pass
         await db.commit()
         
         # ПРОВЕРКА: Если ты запускал старую версию, добавим колонку last_bonus вручную
@@ -97,11 +101,15 @@ async def get_user_data(user_id):
         async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
             return await cursor.fetchone()
             
-async def add_user(user_id, referrer_id=None):
+async def add_user(user_id, is_premium=False, referrer_id=None):
+    premium_int = 1 if is_premium else 0
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("INSERT OR IGNORE INTO users (user_id, referred_by) VALUES (?, ?)", (user_id, referrer_id))
-        if referrer_id:
-            await db.execute("UPDATE users SET energy = energy + 5 WHERE user_id = ?", (referrer_id,))
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, referred_by, is_premium) VALUES (?, ?, ?)", 
+            (user_id, referrer_id, premium_int)
+        )
+        # Обновляем статус, если он изменился
+        await db.execute("UPDATE users SET is_premium = ? WHERE user_id = ?", (premium_int, user_id))
         await db.commit()
 
 async def get_global_stats():
@@ -986,15 +994,58 @@ async def process_promo(message: types.Message, state: FSMContext):
 # 📊 Кнопка: Подробная статистика
 @dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
 async def admin_stats_call(callback: types.CallbackQuery):
-    users, won = await get_global_stats()
-    # Можно добавить больше данных
-    await callback.message.answer(
-        f"📈 **ДЕТАЛЬНАЯ СТАТИСТИКА**\n\n"
-        f"👥 Всего юзеров: {users}\n"
-        f"💰 Всего выплачено: {won} ⭐\n"
-        f"📅 Сегодня 2026 год, бот работает стабильно.", 
-        parse_mode="Markdown"
+    async with aiosqlite.connect(DB_NAME) as db:
+        # 1. Общее кол-во
+        async with db.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0]
+        
+        # 2. Премиум пользователи
+        async with db.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1") as c:
+            premium_users = (await c.fetchone())[0]
+            
+        # 3. Активные (кто играл или брал бонус за последние 24 часа)
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        async with db.execute("SELECT COUNT(*) FROM users WHERE last_bonus > ?", (yesterday,)) as c:
+            active_users = (await c.fetchone())[0]
+
+        # 4. Процент подписавшихся
+        # Считаем тех, кто прошел проверку хотя бы раз (наличие в базе + успешный get_chat_member)
+        # Так как прямой флаг в БД мы не храним, самым точным будет проверить тех, 
+        # кто уже начал тратить энергию (значит, они прошли проверку подписки для игры)
+        async with db.execute("SELECT COUNT(*) FROM users WHERE energy < 3 OR total_won > 0") as c:
+            subscribed_users = (await c.fetchone())[0]
+            
+        sub_percentage = (subscribed_users / total_users * 100) if total_users > 0 else 0
+
+        # 5. Группы
+        async with db.execute("SELECT chat_id, chat_name FROM groups") as c:
+            groups_list = await c.fetchall()
+
+    # Формируем текст групп
+    groups_text = ""
+    if groups_list:
+        for gid, name in groups_list:
+            # Ссылку на группу бот может получить только если у него есть invite_link
+            groups_text += f"• {name} (<code>{gid}</code>)\n"
+    else:
+        groups_text = "Бот пока не добавлен в группы."
+
+    stats_msg = (
+        f"📊 **РАСШИРЕННАЯ СТАТИСТИКА**\n\n"
+        f"👥 **Пользователи:**\n"
+        f"├ Всего: `{total_users}`\n"
+        f"├ С Premium: `{premium_users}`\n"
+        f"├ Без Premium: `{total_users - premium_users}`\n"
+        f"└ Активны (24ч): `{active_users}`\n\n"
+        f"📈 **Конверсия:**\n"
+        f"└ Подписались: `{sub_percentage:.1f}%` ({subscribed_users} чел.)\n\n"
+        f"🏢 **Группы ({len(groups_list)}):**\n"
+        f"{groups_text}\n"
+        f"💰 **Экономика:**\n"
+        f"└ Всего выиграно: `{(await get_global_stats())[1]}` ⭐"
     )
+
+    await callback.message.answer(stats_msg, parse_mode="HTML")
     await callback.answer()
     
 @dp.callback_query(F.data == "check_sub")
