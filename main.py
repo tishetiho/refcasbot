@@ -122,7 +122,6 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     return True
     
 async def is_subscribed(user_id):
-async def is_subscribed(user_id):
     # Если список в коде пуст — пропускаем всех
     if not CHANNELS:
         return True
