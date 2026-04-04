@@ -276,6 +276,11 @@ async def admin_panel(message: types.Message):
     
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: types.Message):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     data = await get_user_data(message.from_user.id)
     if not data: await add_user(message.from_user.id); data = await get_user_data(message.from_user.id)
     
@@ -286,6 +291,11 @@ async def profile_handler(message: types.Message):
 
 @dp.message(F.text == "🎁 Бонус")
 async def daily_bonus(message: types.Message):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     user_id = message.from_user.id
     if not await is_subscribed(user_id): return await message.answer("❌ Сначала подпишись на канал!")
     
@@ -308,6 +318,11 @@ async def daily_bonus(message: types.Message):
 
 @dp.message(F.text == "💎 Вывод")
 async def withdraw_handler(message: types.Message):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     data = await get_user_data(message.from_user.id)
     balance = data['balance']
     if balance >= 30:
@@ -521,6 +536,11 @@ async def bonus_in_discussion(message: types.Message):
     
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     users, won = await get_global_stats()
     await message.answer(f"📊 **СТАТИСТИКА БОТА**\n\n👥 Игроков: {users}\n💰 Выиграно всего: {won} ⭐\n✅ Выплаты активны!", parse_mode="Markdown")
 
@@ -621,6 +641,11 @@ async def admin_confirm_delete_task(callback: types.CallbackQuery):
 
 @dp.message(F.text == "📜 Задания")
 async def show_tasks(message: types.Message):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     user_id = message.from_user.id
     builder = InlineKeyboardBuilder()
     
@@ -795,6 +820,11 @@ async def process_broadcast(message: types.Message, state: FSMContext):
 # 1. Сначала ловим нажатие кнопки
 @dp.message(F.text == "🎫 Промокод")
 async def promo_start_activation(message: types.Message, state: FSMContext):
+    if not await is_subscribed(callback.from_user.id):
+        return await callback.answer(
+            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
+            show_alert=True
+        )
     await message.answer("✨ **Активация бонуса**\n\nВведите ваш секретный промокод:", parse_mode="Markdown")
     await state.set_state(UserStates.waiting_for_promo_activation)
 
