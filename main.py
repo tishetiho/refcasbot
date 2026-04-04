@@ -18,9 +18,7 @@ import time
 TOKEN = "8673476742:AAE4GeCi3x__yVgU3VKdtSYIvqfaTOaraJE"
 OFFICIAL_CHANNEL_ID = -1003884251721
 DISCUSSION_GROUP_ID = -1003446103260
-CHANNELS = [
-    {"id": -1003884251721, "url": "https://t.me/ludomove"},
-]
+CHANNELS = []
 ADMIN_ID = 5078764886
 KNB_TIMEOUT = 120  # 2 минуты на ход
 KNB_COMMISSION = 0.05 # 5% комиссия
@@ -122,23 +120,20 @@ async def is_subscribed_with_alert(message: types.Message, user_id: int):
     
 async def is_subscribed(user_id):
     async with aiosqlite.connect(DB_NAME) as db:
+        # Берем каналы ТОЛЬКО из таблицы sub_channels
         async with db.execute("SELECT channel_id FROM sub_channels") as cursor:
             rows = await cursor.fetchall()
     
     if not rows:
-        return True
+        return True # Если в админке пусто — пускаем всех
 
-    for row in rows:
-        ch_id = row[0]
+    for (ch_id,) in rows:
         try:
             member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
-        except Exception as e:
-            # Если бота кикнули из канала-админа, он не сможет проверить подписку. 
-            # В этом случае пропускаем канал, чтобы бот не "умер"
-            print(f"Ошибка проверки канала {ch_id}: {e}")
-            continue 
+        except:
+            continue
     return True
 
 @dp.callback_query(F.data == "check_sub")
@@ -752,19 +747,32 @@ async def add_sub_final(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "admin_list_sub_channels", F.from_user.id == ADMIN_ID)
 async def list_sub_channels(callback: types.CallbackQuery):
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT channel_id, name FROM sub_channels") as cursor:
-            channels = await cursor.fetchall()
-    
-    if not channels:
-        return await callback.answer("Список каналов пуст!", show_alert=True)
-    
-    builder = InlineKeyboardBuilder()
-    for ch_id, name in channels:
-        builder.row(types.InlineKeyboardButton(text=f"❌ Удалить {name}", callback_data=f"del_sub_{ch_id}"))
-    builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back"))
-    
-    await callback.message.edit_text("Список каналов для подписки:", reply_markup=builder.as_markup())
+        async with db.execute("SELECT channel_id, url, name FROM sub_channels") as cursor:
+            rows = await cursor.fetchall()
 
+    builder = InlineKeyboardBuilder()
+    text = "📢 **Список каналов для подписки:**\n\n"
+    
+    if not rows:
+        text += "Список пуст."
+    else:
+        for row in rows:
+            ch_id, url, name = row
+            text += f"🔹 {name} ({ch_id})\n🔗 {url}\n\n"
+            builder.row(types.InlineKeyboardButton(
+                text=f"❌ Удалить {name}", 
+                callback_data=f"del_sub_{ch_id}")
+            )
+
+    builder.row(types.InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_sub_channel"))
+    builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_main"))
+
+    # Используем edit_text, чтобы обновить текущее меню
+    try:
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    except:
+        await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        
 @dp.callback_query(F.data.startswith("del_sub_"), F.from_user.id == ADMIN_ID)
 async def delete_sub_channel(callback: types.CallbackQuery):
     # Безопасное извлечение ID (все, что после 'del_sub_')
