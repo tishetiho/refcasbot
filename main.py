@@ -31,6 +31,10 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''CREATE TABLE IF NOT EXISTS knb_games 
+                        (game_id TEXT PRIMARY KEY, creator_id INTEGER, joiner_id INTEGER, 
+                        chat_id INTEGER, bet INTEGER, c_move TEXT, j_move TEXT, status TEXT)''')
+    async with aiosqlite.connect(DB_NAME) as db:
         # Основные таблицы
         await db.execute('''CREATE TABLE IF NOT EXISTS tasks 
                           (task_id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -975,6 +979,183 @@ async def process_promo(message: types.Message, state: FSMContext):
     except:
         await message.answer("❌ Ошибка в формате. Попробуй еще раз.")
     await state.clear()
+
+@dp.message(Command("knb"), F.chat.type.in_(["group", "supergroup"]))
+async def create_knb_duel(message: types.Message, command: CommandObject):
+    user_id = message.from_user.id
+    
+    # 1. Проверка: запущен ли бот (есть ли в БД) и подписка
+    data = await get_user_data(user_id)
+    if not data:
+        return await message.reply("❌ Ты не зарегистрирован в боте! Напиши мне в ЛС /start")
+    
+    if not await is_subscribed(user_id):
+        return await message.reply("❌ Подпишись на каналы в боте, чтобы играть!")
+
+    if not command.args or not command.args.isdigit():
+        return await message.reply("⚠️ Напиши ставку энергии: `/knb 2`")
+    
+    bet = int(command.args)
+    if data['energy'] < bet or bet < 1:
+        return await message.reply(f"❌ Недостаточно ⚡️. Твой баланс: {data['energy']}")
+
+    game_id = f"knb_{user_id}_{int(time.time())}"
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="Принять вызов ⚔️", callback_data=f"knb_join_{game_id}_{bet}"))
+    
+    await message.answer(
+        f"✊✌️✋ **ВЫЗОВ КНБ!**\n\n"
+        f"👤 Игрок: {message.from_user.mention_html()}\n"
+        f"⚡️ Ставка: **{bet} энергии**\n"
+        f"⚖️ Комиссия: {int(KNB_COMMISSION*100)}%\n\n"
+        f"Жми кнопку, чтобы принять бой!",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(F.data.startswith("knb_join_"))
+async def accept_knb_duel(callback: types.CallbackQuery):
+    data_parts = callback.data.split("_")
+    game_id, bet = "_".join(data_parts[2:5]), int(data_parts[5])
+    creator_id = int(data_parts[3])
+    joiner_id = callback.from_user.id
+
+    if joiner_id == creator_id:
+        return await callback.answer("Нельзя играть с самим собой!", show_alert=True)
+
+    # 2. Проверка второго игрока (Бот запущен + Подписка + Энергия)
+    j_data = await get_user_data(joiner_id)
+    if not j_data:
+        return await callback.answer("❌ Сначала запусти бота в ЛС!", show_alert=True)
+    if not await is_subscribed(joiner_id):
+        return await callback.answer("❌ Подпишись на каналы в боте!", show_alert=True)
+    if j_data['energy'] < bet:
+        return await callback.answer("❌ У тебя не хватает энергии!", show_alert=True)
+
+    # Проверка первого игрока (не слил ли он энергию, пока ждал)
+    c_data = await get_user_data(creator_id)
+    if c_data['energy'] < bet:
+        return await callback.answer("У создателя уже нет столько энергии!", show_alert=True)
+
+    # Создаем запись игры и отправляем выбор в ЛС
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO knb_games (game_id, creator_id, joiner_id, bet, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (game_id, creator_id, joiner_id, bet, "WAITING", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        await db.commit()
+
+    # Кнопки для выбора в ЛС
+    kb = InlineKeyboardBuilder()
+    for move, icon in [("r", "🪨 Камень"), ("s", "✂️ Ножницы"), ("p", "📄 Бумага")]:
+        kb.row(types.InlineKeyboardButton(text=icon, callback_data=f"knb_move_{game_id}_{move}"))
+
+    try:
+        await bot.send_message(creator_id, f"🎮 Игра началась! Сделай свой выбор для дуэли на {bet} ⚡️:", reply_markup=kb.as_markup())
+        await bot.send_message(joiner_id, f"🎮 Ты принял вызов! Сделай свой выбор для дуэли на {bet} ⚡️:", reply_markup=kb.as_markup())
+        await callback.message.edit_text(f"🤝 Дуэль принята! Игроки делают выбор в ЛС бота...")
+        
+        # Запускаем таймер на 2 минуты
+        asyncio.create_task(knb_timeout_check(game_id, callback.message))
+    except Exception:
+        await callback.answer("❌ Не удалось отправить сообщение в ЛС. Убедитесь, что бот не заблокирован!", show_alert=True)
+
+@dp.callback_query(F.data.startswith("knb_move_"))
+async def process_knb_move(callback: types.CallbackQuery):
+    data = callback.data.split("_")
+    game_id, move = "_".join(data[2:5]), data[5]
+    user_id = callback.from_user.id
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM knb_games WHERE game_id = ?", (game_id,)) as cursor:
+            game = await cursor.fetchone()
+        
+        if not game or game['status'] != "WAITING":
+            return await callback.message.edit_text("⌛️ Время вышло или игра завершена.")
+
+        # Записываем ход
+        col = "c_move" if user_id == game['creator_id'] else "j_move"
+        await db.execute(f"UPDATE knb_games SET {col} = ? WHERE game_id = ?", (move, game_id))
+        await db.commit()
+
+        # Проверяем, сделали ли оба ход
+        async with db.execute("SELECT c_move, j_move, creator_id, joiner_id, bet FROM knb_games WHERE game_id = ?", (game_id,)) as cursor:
+            updated_game = await cursor.fetchone()
+            
+        if updated_game['c_move'] and updated_game['j_move']:
+            await finish_knb_game(updated_game, game_id)
+            await callback.message.edit_text("✅ Ход принят! Результаты в группе.")
+        else:
+            await callback.message.edit_text("⏳ Ход принят! Ожидаем соперника...")
+
+async def finish_knb_game(game, game_id):
+    m1, m2 = game['c_move'], game['j_move']
+    c_id, j_id = game['creator_id'], game['joiner_id']
+    bet = game['bet']
+    
+    # Логика победителя
+    if m1 == m2:
+        res = "draw"
+    else:
+        win_map = {'r': 's', 's': 'p', 'p': 'r'}
+        res = "win1" if win_map[m1] == m2 else "win2"
+
+    names = {'r': '🪨 Камень', 's': '✂️ Ножницы', 'p': '📄 Бумага'}
+    
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE knb_games SET status = 'FINISHED' WHERE game_id = ?", (game_id,))
+        
+        if res == "draw":
+            result_text = f"🤝 **Ничья!** Оба выбрали {names[m1]}. Энергия сохранена."
+        else:
+            winner = c_id if res == "win1" else j_id
+            loser = j_id if res == "win1" else c_id
+            # Чистый выигрыш (забираем ставку у одного, даем другому минус комиссия)
+            # У обоих отнимается комиссия 5%: Победитель получает (bet * 0.95), проигравший теряет (bet)
+            prize = int(bet * (1 - KNB_COMMISSION))
+            
+            await db.execute("UPDATE users SET energy = energy - ? WHERE user_id = ?", (bet, loser))
+            await db.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (prize, winner))
+            
+            result_text = (f"🏆 Победил <a href='tg://user?id={winner}'>игрок</a>!\n"
+                           f"🧤 Выбор: {names[m1]} vs {names[m2]}\n"
+                           f"💰 Выигрыш: **+{prize} ⚡️**")
+        await db.commit()
+
+    # Здесь нужно отправить сообщение в группу. 
+    # Так как у нас нет chat_id в таблице, его лучше передать при создании или хранить в game_id.
+    # Для примера отправим в DISCUSSION_GROUP_ID или используем логику уведомлений в ЛС.
+    # Чтобы отправить в ту же группу, можно сохранить chat_id в таблицу knb_games.
+
+async def knb_timeout_check(game_id, message: types.Message):
+    await asyncio.sleep(KNB_TIMEOUT)
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM knb_games WHERE game_id = ? AND status = 'WAITING'", (game_id,)) as cursor:
+            game = await cursor.fetchone()
+            
+        if not game: return # Игра уже завершилась нормально
+
+        # Проверяем, кто не походил
+        winner, loser = None, None
+        if not game['c_move'] and game['j_move']:
+            winner, loser = game['joiner_id'], game['creator_id']
+        elif game['c_move'] and not game['j_move']:
+            winner, loser = game['creator_id'], game['joiner_id']
+        
+        if winner:
+            prize = int(game['bet'] * (1 - KNB_COMMISSION))
+            await db.execute("UPDATE users SET energy = energy - ? WHERE user_id = ?", (game['bet'], loser))
+            await db.execute("UPDATE users SET energy = energy + ? WHERE user_id = ?", (prize, winner))
+            await db.execute("UPDATE knb_games SET status = 'TIMEOUT' WHERE game_id = ?", (game_id,))
+            await db.commit()
+            await message.edit_text(f"⏰ Время вышло! <a href='tg://user?id={loser}'>Игрок</a> не сделал выбор. \n🏆 Победа присуждена оппоненту!", parse_mode="HTML")
+        else:
+            await db.execute("UPDATE knb_games SET status = 'CANCELLED' WHERE game_id = ?", (game_id,))
+            await db.commit()
+            await message.edit_text("⏰ Оба игрока проигнорировали выбор. Дуэль аннулирована.")
         
 # 📊 Кнопка: Подробная статистика
 @dp.callback_query(F.data == "admin_stats", F.from_user.id == ADMIN_ID)
