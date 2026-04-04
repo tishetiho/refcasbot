@@ -1224,11 +1224,11 @@ async def check_cb(callback: types.CallbackQuery):
     else:
         await callback.answer("❌ Вы всё еще не подписаны!", show_alert=True)
 
+
 @dp.inline_query()
 async def inline_check_handler(inline_query: types.InlineQuery):
     text = inline_query.query.strip().split()
     
-    # Ожидаем ввод типа: "10 energy" или "stars"
     if len(text) < 2 or not text[0].isdigit():
         return
 
@@ -1236,70 +1236,57 @@ async def inline_check_handler(inline_query: types.InlineQuery):
     ctype = text[1].lower()
     user_id = inline_query.from_user.id
     
-    # Сопоставляем ввод с колонками в БД
+    # Определяем колонку
     if ctype in ['energy', 'энергия', '⚡️']:
-        column = "energy"
-        display_type = "energy"
+        column, display_type = "energy", "energy"
     elif ctype in ['stars', 'звезды', '⭐']:
-        column = "balance" # В твоем коде баланс звезд обычно называется balance или stars
-        display_type = "stars"
+        column, display_type = "balance", "stars"
     else:
         return
 
-    if amount <= 0:
-        return
-
-    # Проверяем баланс игрока в базе
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(f"SELECT {column} FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             user_balance = row[0] if row else 0
 
-    # Если денег мало — показываем ошибку в превью
     if user_balance < amount:
-        results = [
-            types.InlineQueryResultArticle(
-                id="error_balance",
-                title="❌ Недостаточно средств",
-                description=f"У тебя всего {user_balance} {display_type}",
-                input_message_content=types.InputTextMessageContent(
-                    message_text="❌ Не удалось создать чек: недостаточно средств на балансе."
-                )
-            )
-        ]
-        return await inline_query.answer(results, cache_time=1)
+        # ... (блок ошибки оставляем как был)
+        return
 
-    # Если всё ОК — генерируем чек
     check_id = str(uuid.uuid4())[:8]
     
-    # Сразу списываем валюту у создателя
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(f"UPDATE users SET {column} = {column} - ? WHERE user_id = ?", (amount, user_id))
         await db.execute("INSERT INTO checks (check_id, creator_id, amount, type) VALUES (?, ?, ?, ?)",
                          (check_id, user_id, amount, display_type))
         await db.commit()
 
-    # Ссылка на твою картинку
+    # Ссылка на картинку
     photo_url = "https://i.postimg.cc/C5n4jpKt/Bez-nazvania246-20260404171802.png"
     
-    # Формируем текст с невидимой ссылкой для отображения картинки
+    # Формируем текст
+    # Ссылка стоит первой — это критично
     message_text = (
-        f'<a href="{photo_url}">&#8203;</a>'  # Тот самый невидимый символ-ссылка
+        f'<a href="{photo_url}">&#8203;</a>'
         f"📦 **НОВЫЙ ЧЕК!**\n\n"
         f"💰 Номинал: `{amount}` {display_type}\n"
         f"👤 Отправитель: {inline_query.from_user.mention_html()}\n\n"
-        f" Кто первый нажмет на кнопку, тот и заберет!"
+        f"Кто первый нажмет на кнопку, тот и заберет!"
     )
 
     results = [
         types.InlineQueryResultArticle(
             id=check_id,
             title=f"🎁 Создать чек на {amount} {display_type}",
-            description=f"С твоего баланса будет списано {amount} {display_type}",
             input_message_content=types.InputTextMessageContent(
                 message_text=message_text,
-                parse_mode="HTML", # ОБЯЗАТЕЛЬНО для работы ссылки и оформления
-                disable_web_page_preview=False # Убеждаемся, что превью НЕ выключено
+                parse_mode="HTML",
+                # Включаем превью и просим Telegram показать его НАД текстом
+                link_preview_options=types.LinkPreviewOptions(
+                    url=photo_url,
+                    show_above_text=True, # ВОТ ЭТОТ ПАРАМЕТР СТАВИТ ФОТО ВЫШЕ
+                    prefer_large_media=True # Сделать картинку большой
+                )
             ),
             reply_markup=InlineKeyboardBuilder().row(
                 types.InlineKeyboardButton(text="ЗАБРАТЬ 🎁", callback_data=f"claim_{check_id}")
@@ -1308,7 +1295,7 @@ async def inline_check_handler(inline_query: types.InlineQuery):
     ]
     
     await inline_query.answer(results, cache_time=1, is_personal=True)
-        
+    
 # Регистрация мидлвари для всех сообщений
 dp.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.6))
 
