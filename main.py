@@ -1016,18 +1016,18 @@ async def admin_stats_call(callback: types.CallbackQuery):
         groups_text = "Бот пока не добавлен в группы."
 
     stats_msg = (
-        f"<tg-emoji emoji-id="5368314051728282468">😎</tg-emoji> Расширенная статистика\n\n"
-        f"👥 **Пользователи:**\n"
-        f"├ Всего: `{total_users}`\n"
-        f"├ С Premium: `{premium_users}`\n"
-        f"├ Без Premium: `{total_users - premium_users}`\n"
-        f"└ Активны (24ч): `{active_users}`\n\n"
-        f"📈 **Конверсия:**\n"
-        f"└ Подписались: `{sub_percentage:.1f}%` ({subscribed_users} чел.)\n\n"
-        f"🏢 **Группы ({len(groups_list)}):**\n"
+        f"📊 Расширенная статистика\n\n"
+        f"👥 Пользователи:\n"
+        f"├ Всего: {total_users}\n"
+        f"├ С Premium: {premium_users}\n"
+        f"├ Без Premium: {total_users - premium_users}\n"
+        f"└ Активные (24ч): {active_users}\n\n"
+        f"📈 Конверсия:\n"
+        f"└ Подписались: {sub_percentage:.1f}% ({subscribed_users} чел.)\n\n"
+        f"🏢 Группы ({len(groups_list)}):\n"
         f"{groups_text}\n"
-        f"💰 **Экономика:**\n"
-        f"└ Всего выиграно: `{(await get_global_stats())[1]}` ⭐"
+        f"💰 Экономика:\n"
+        f"└ Всего выиграно: {(await get_global_stats())[1]} ⭐"
     )
 
     await callback.message.answer(stats_msg, parse_mode="HTML")
