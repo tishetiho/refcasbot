@@ -1268,9 +1268,9 @@ async def inline_check_handler(inline_query: types.InlineQuery):
     # Ссылка стоит первой — это критично
     message_text = (
         f'<a href="{photo_url}">&#8203;</a>'
-        f"Чек на {amount} 🪙 {display_type}\n\n"
+        f"Чек на {amount} 🪙 {display_type}\n"
         f"➖➖➖➖➖\n"
-        f"👤 Отправитель: {inline_query.from_user.mention_html()}\n\n"
+        f"👤 Отправитель: {inline_query.from_user.mention_html()}\n"
         f"➖➖➖➖➖\n"
         f"👇 Жми чтобы получить 👇"
     )
@@ -1290,7 +1290,7 @@ async def inline_check_handler(inline_query: types.InlineQuery):
                 )
             ),
             reply_markup=InlineKeyboardBuilder().row(
-                types.InlineKeyboardButton(text="Получить {amount} {display_type}", callback_data=f"claim_{check_id}")
+                types.InlineKeyboardButton(text="Получить 🪙", callback_data=f"claim_{check_id}")
             ).as_markup()
         )
     ]
