@@ -31,65 +31,52 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        # 2. Таблица заданий
+        # Основные таблицы
         await db.execute('''CREATE TABLE IF NOT EXISTS tasks 
                           (task_id INTEGER PRIMARY KEY AUTOINCREMENT, 
                            title TEXT, url TEXT, channel_id TEXT, reward INTEGER)''')
-        
-        # 3. Таблица выполненных заданий
         await db.execute('''CREATE TABLE IF NOT EXISTS completed_tasks 
                           (user_id INTEGER, task_id INTEGER, PRIMARY KEY (user_id, task_id))''')
-        await db.commit()
-    async with aiosqlite.connect(DB_NAME) as db:
-        # Таблица для хранения ID чатов/групп
         await db.execute('''CREATE TABLE IF NOT EXISTS groups 
                           (chat_id INTEGER PRIMARY KEY, chat_name TEXT)''')
-    async with aiosqlite.connect(DB_NAME) as db:
-        # Таблица для контроля получения бонусов под постами
         await db.execute('''CREATE TABLE IF NOT EXISTS post_bonuses 
                           (user_id INTEGER, post_id TEXT, PRIMARY KEY (user_id, post_id))''')
-        await db.commit()
-    async with aiosqlite.connect(DB_NAME) as db:
-        # Таблица для хранения связей: кто (user_id) пригласил кого (referral_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS referrals 
                           (referrer_id INTEGER, referral_id INTEGER PRIMARY KEY)''')
-        await db.commit()
-    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('''CREATE TABLE IF NOT EXISTS checks 
-                  (check_id TEXT PRIMARY KEY, creator_id INTEGER, 
-                   amount INTEGER, type TEXT, is_claimed INTEGER DEFAULT 0)''')
+                          (check_id TEXT PRIMARY KEY, creator_id INTEGER, 
+                           amount INTEGER, type TEXT, is_claimed INTEGER DEFAULT 0)''')
         await db.execute('''CREATE TABLE IF NOT EXISTS settings 
                           (key TEXT PRIMARY KEY, value INTEGER)''')
-        # Устанавливаем значение по умолчанию (1 = Включено), если записи нет
         await db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('bonus_enabled', 1)")
-        await db.commit()
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("PRAGMA journal_mode=WAL;") # Ускоряет одновременную запись и чтение
-    async with aiosqlite.connect(DB_NAME) as db:
-        # Создаем таблицу, если её нет
+        
+        # Таблица пользователей
         await db.execute('''CREATE TABLE IF NOT EXISTS users 
                           (user_id INTEGER PRIMARY KEY, 
                            balance INTEGER DEFAULT 0, 
                            energy INTEGER DEFAULT 3, 
                            referred_by INTEGER,
                            total_won INTEGER DEFAULT 0,
+                           is_premium INTEGER DEFAULT 0,
                            last_bonus TEXT DEFAULT '2000-01-01 00:00:00')''')
+        
         await db.execute('''CREATE TABLE IF NOT EXISTS sub_channels 
                           (channel_id INTEGER PRIMARY KEY, url TEXT, name TEXT)''')
-                try:
-            await db.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
-        except:
-            pass
-        await db.commit()
         
-        # ПРОВЕРКА: Если ты запускал старую версию, добавим колонку last_bonus вручную
+        # Блок обновления структуры (строка 79 и далее)
+        # УБЕДИСЬ, ЧТО ЭТИ TRY СТОЯТ ПРЯМО ПОД AWAIT ВЫШЕ
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT DEFAULT '2000-01-01 00:00:00'")
         except:
-            pass # Если колонка уже есть, ошибка проигнорируется
+            pass
             
         try:
             await db.execute("ALTER TABLE users ADD COLUMN total_won INTEGER DEFAULT 0")
+        except:
+            pass
+
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0")
         except:
             pass
             
@@ -102,14 +89,11 @@ async def get_user_data(user_id):
             return await cursor.fetchone()
             
 async def add_user(user_id, is_premium=False, referrer_id=None):
-    premium_int = 1 if is_premium else 0
+    premium_val = 1 if is_premium else 0
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO users (user_id, referred_by, is_premium) VALUES (?, ?, ?)", 
-            (user_id, referrer_id, premium_int)
-        )
-        # Обновляем статус, если он изменился
-        await db.execute("UPDATE users SET is_premium = ? WHERE user_id = ?", (premium_int, user_id))
+        await db.execute("INSERT OR IGNORE INTO users (user_id, referred_by, is_premium) VALUES (?, ?, ?)", 
+                         (user_id, referrer_id, premium_val))
+        await db.execute("UPDATE users SET is_premium = ? WHERE user_id = ?", (premium_val, user_id))
         await db.commit()
 
 async def get_global_stats():
@@ -267,7 +251,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
                         print(f"Ошибка реф-системы: {e}")
 
     # Добавление юзера в общую таблицу (твоя функция)
-    await add_user(user_id)
+    await add_user(user_id, message.from_user.is_premium, referrer_id)
     
     # --- 2. СИСТЕМА БОНУСОВ ЗА ПОСТЫ (ЗАЩИТА ОТ ПОВТОРНЫХ НАЖАТИЙ) ---
     if args and args.startswith("post_bonus_"):
