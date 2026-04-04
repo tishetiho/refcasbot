@@ -257,16 +257,16 @@ async def start_cmd(message: types.Message, command: CommandObject):
 
     # 2. СТАРАЯ ДОБРАЯ ОП (через CHANNELS)
     if await is_subscribed(user_id):
-        await message.answer("✅ Подписка подтверждена!", reply_markup=main_menu_kb())
+        await message.answer("🧸 главное меню. Добро пожаловать, с чего начнем? 👇", reply_markup=main_menu_kb())
     else:
         builder = InlineKeyboardBuilder()
         for channel in CHANNELS:
             builder.row(types.InlineKeyboardButton(text=channel["name"], url=channel["url"]))
         
-        builder.row(types.InlineKeyboardButton(text="✅ Проверить подписки", callback_data="check_sub"))
+        builder.row(types.InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub"))
         
         await message.answer(
-            "🚀 **Чтобы начать игру, подпишись на наши каналы:**",
+            "🚀 Чтобы пользоваться ботом, подпишись на наши каналы:",
             reply_markup=builder.as_markup(),
             parse_mode="Markdown"
         )
@@ -291,7 +291,7 @@ async def profile_handler(message: types.Message):
         await add_user(message.from_user.id)
         data = await get_user_data(message.from_user.id)
     
-    await message.answer(f"👤 **ПРОФИЛЬ**\n\n"
+    await message.answer(f"👤 Ваш профиль:\n\n"
                          f"💰 Баланс: {data['balance']} ⭐\n"
                          f"⚡ Энергия: {data['energy']}\n"
                          f"🏆 Выиграно за всё время: {data['total_won']} ⭐", parse_mode="Markdown")
@@ -327,13 +327,13 @@ async def daily_bonus(message: types.Message):
                 (new_time, user_id)
             )
             await db.commit()
-        await message.answer("🎁 Вы получили бонус: **+1 ⚡ Энергии**!", parse_mode="Markdown")
+        await message.answer("🎁 Вы получили бонус: +1 ⚡ энергия!", parse_mode="Markdown")
     else:
         delta = (last_bonus_time + timedelta(hours=24)) - datetime.now()
         hours, remainder = divmod(int(delta.total_seconds()), 3600)
         minutes, _ = divmod(remainder, 60)
         await message.answer(
-            f"⏳ Бонус будет доступен через **{hours}ч. {minutes}м.**", 
+            f"⏳ Бонус будет доступен через {hours}ч. {minutes}м.", 
             parse_mode="Markdown"
         )
 
@@ -355,19 +355,19 @@ async def withdraw_handler(message: types.Message):
     
     if balance >= 30:
         await message.answer(
-            f"💎 На вашем балансе **{balance} ⭐**\n\n"
+            f"💎 На вашем балансе {balance} ⭐\n\n"
             "Для вывода напишите сумму вывода и ожидайте поступления средств на ваш баланс Telegram Stars.",
             parse_mode="Markdown"
         )
     else:
         await message.answer(
             f"❌ Недостаточно средств.\n"
-            f"Минимум для вывода: **30 ⭐**\n"
-            f"Ваш баланс: **{balance} ⭐**", 
+            f"Минимум для вывода: 30 ⭐\n"
+            f"Ваш баланс: {balance} ⭐", 
             parse_mode="Markdown"
         )
 
-@dp.message(F.text.in_(["🎰 ИГРАТЬ (Рулетка)", "/play", "/dice"]))
+@dp.message(F.text.in_(["🎰 ИГРАТЬ (Рулетка)", "/play", "/slot"]))
 async def play_game(message: types.Message):
     user_id = message.from_user.id
     chat_type = message.chat.type # Определяем, где идет игра
@@ -376,7 +376,7 @@ async def play_game(message: types.Message):
     if not await is_subscribed_with_alert(message, user_id):
         return
     if not await is_subscribed(user_id): 
-        return await message.answer("❌ Сначала подпишитесь на канал!")
+        return await message.answer("❌ Сначала подпишись на каналы!")
 
     # 2. Получение данных (с подстраховкой)
     data = await get_user_data(user_id)
@@ -389,7 +389,7 @@ async def play_game(message: types.Message):
     energy = data['energy'] if data else 0
     
     if energy <= 0: 
-        return await message.answer("🪫 Нет энергии! Приглашай друзей или жди бонус.")
+        return await message.answer("🪫 Нет энергии! Приглашай друзей или забирай ежедневный бонус.")
 
     # 4. Списание энергии
     async with aiosqlite.connect(DB_NAME) as db:
@@ -477,8 +477,8 @@ async def start_duel(message: types.Message, command: CommandObject):
     await message.answer(
         f"⚔️ ВЫЗОВ НА ДУЭЛЬ!\n\n"
         f"👤 Игрок: {message.from_user.mention_html()}\n"
-        f"💰 Ставка: **{bet} ⭐**\n\n"
-        f"Чтобы принять вызов, ответь на это сообщение командой `/accept`",
+        f"💰 Ставка: {bet} ⭐\n\n"
+        f"Чтобы принять вызов, ответь на это сообщение командой /accept",
         parse_mode="HTML"
     )
 
@@ -519,7 +519,7 @@ async def accept_duel(message: types.Message):
         await asyncio.sleep(2.5)
 
         if val1 == val2:
-            await message.answer("🤝 **Ничья!** Очки равны, звезды остаются при своих.")
+            await message.answer("🤝 Ничья! Очки равны, звезды остаются при своих.")
         else:
             winner_id = challenger_id if val1 > val2 else acceptor_id
             loser_id = acceptor_id if val1 > val2 else challenger_id
@@ -536,7 +536,7 @@ async def accept_duel(message: types.Message):
             await message.answer(
                 f"🎉 Победил {winner_name}!\n"
                 f"📈 Результат: {val1} vs {val2}\n"
-                f"💰 Выигрыш: **+{prize} ⭐** (с учетом комиссии)",
+                f"💰 Выигрыш: {prize} ⭐ (с учетом комиссии)",
                 parse_mode="Markdown"
             )
     
@@ -557,12 +557,12 @@ async def bonus_in_discussion(message: types.Message):
             
             builder = InlineKeyboardBuilder()
             builder.row(types.InlineKeyboardButton(
-                text="🎁 ЗАБРАТЬ 3 ⚡️", 
+                text="🎁 получить бонус", 
                 url=f"https://t.me/{(await bot.get_me()).username}?start=post_bonus_{message.forward_from_message_id}"
             ))
 
             await message.reply(
-                "🎊 **БОНУС К НОВОСТИ!**\nЖми кнопку ниже:",
+                "‼️ успей забрать бонус пока не разобрали!\n жми👇:",
                 reply_markup=builder.as_markup(),
                 parse_mode="Markdown"
             )
@@ -586,7 +586,7 @@ async def stats_handler(message: types.Message):
 
     users, won = await get_global_stats()
     await message.answer(
-        f"📊 **СТАТИСТИКА БОТА**\n\n"
+        f"📊 СТАТИСТИКА ЛУДОБОТА\n\n"
         f"👥 Всего игроков: {users}\n"
         f"💰 Выиграно за всё время: {won} ⭐\n\n"
         f"✅ Выплаты работают в штатном режиме!", 
@@ -610,8 +610,8 @@ async def ref_handler(message: types.Message):
     link = f"https://t.me/{me.username}?start={user_id}"
     
     await message.answer(
-        f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\n"
-        f"Приглашай друзей и получай **+5 ⚡ Энергии** за каждого приглашенного!\n\n"
+        f"👥 РЕФЕРАЛЬНАЯ ПРОГРАММА\n\n"
+        f"Приглашай друзей и получай +5 ⚡ Энергии за каждого приглашенного!\n\n"
         f"🔗 **Твоя ссылка для приглашения:**\n"
         f"`{link}`", 
         parse_mode="Markdown"
@@ -725,7 +725,7 @@ async def show_tasks(message: types.Message):
     # Например:
     # builder.row(types.InlineKeyboardButton(text="Сделать репост", callback_data="task_repost"))
     
-    await message.answer("📜 **ДОСТУПНЫЕ ЗАДАНИЯ**\n\nВыполняйте задания и получайте ⚡ Энергию и ⭐ Звезды!", 
+    await message.answer("📜 ДОСТУПНЫЕ ЗАДАНИЯ\n\nВыполняйте задания и получайте ⚡ Энергию и ⭐ Звезды!", 
                          reply_markup=builder.as_markup(),
                          parse_mode="Markdown")
     
@@ -745,7 +745,7 @@ async def show_tasks(message: types.Message):
             callback_data=f"view_task_{task_id}"
         ))
     
-    await message.answer("выбери задание для выполнения:", reply_markup=builder.as_markup())
+    await message.answer("Выбирай задание для выполнения:", reply_markup=builder.as_markup())
 
 @dp.callback_query(F.data.startswith("view_task_"))
 async def view_task(callback: types.CallbackQuery):
@@ -835,7 +835,7 @@ async def list_sub_channels(callback: types.CallbackQuery):
             rows = await cursor.fetchall()
 
     builder = InlineKeyboardBuilder()
-    text = "📢 **Список каналов для подписки:**\n\n"
+    text = "📢 Список каналов для подписки:\n\n"
     
     if not rows:
         text += "Список пуст."
@@ -912,7 +912,7 @@ async def promo_start_activation(message: types.Message, state: FSMContext):
     # -------------------------
 
     await message.answer(
-        "✨ **Активация бонуса**\n\n"
+        "✨ Активация бонуса\n\n"
         "Введите ваш секретный промокод:", 
         parse_mode="Markdown"
     )
