@@ -296,7 +296,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
         
         await message.answer(
             "🚀 **Чтобы начать игру, нужно подписаться на наши ресурсы:**"),
-            reply_markup
+        reply_markup
                 
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
 async def admin_panel(message: types.Message):
