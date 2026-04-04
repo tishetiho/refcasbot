@@ -1016,7 +1016,7 @@ async def admin_stats_call(callback: types.CallbackQuery):
         groups_text = "Бот пока не добавлен в группы."
 
     stats_msg = (
-        f"📊 **РАСШИРЕННАЯ СТАТИСТИКА**\n\n"
+        f"<tg-emoji emoji-id="5368314051728282468">😎</tg-emoji> Расширенная статистика\n\n"
         f"👥 **Пользователи:**\n"
         f"├ Всего: `{total_users}`\n"
         f"├ С Premium: `{premium_users}`\n"
