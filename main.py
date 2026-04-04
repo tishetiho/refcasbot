@@ -224,6 +224,7 @@ async def admin_kb():
 async def start_cmd(message: types.Message, command: CommandObject):
     args = command.args
     user_id = message.from_user.id
+    referrer_id = None
     
     # --- 1. СИСТЕМА РЕФЕРАЛОВ (ЗАЩИТА ОТ АБУЗА ПЕРЕХОДОВ) ---
     if args and args.isdigit():
