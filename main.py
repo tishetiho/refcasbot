@@ -295,7 +295,7 @@ async def start_cmd(message: types.Message, command: CommandObject):
         builder.row(types.InlineKeyboardButton(text="✅ Проверить подписки", callback_data="check_sub"))
         
         await message.answer(
-            "🚀 **Чтобы начать игру, нужно подписаться на наши ресурсы:**",
+            "🚀 **Чтобы начать игру, нужно подписаться на наши ресурсы:**"),
             reply_markup
                 
 @dp.message(Command("admin"), F.from_user.id == ADMIN_ID)
