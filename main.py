@@ -905,7 +905,7 @@ async def promo_start_activation(message: types.Message, state: FSMContext):
     if not await is_subscribed(user_id):
         return await message.answer(
             "❌ Доступ ограничен!\n\n"
-            "Подробнее — /start"
+            "Подробнее — /start",
             parse_mode="Markdown"
         )
     # -------------------------
