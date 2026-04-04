@@ -276,13 +276,19 @@ async def admin_panel(message: types.Message):
     
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: types.Message):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(message.from_user.id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start",
+            parse_mode="Markdown"
         )
+    # -------------------------
+
     data = await get_user_data(message.from_user.id)
-    if not data: await add_user(message.from_user.id); data = await get_user_data(message.from_user.id)
+    if not data: 
+        await add_user(message.from_user.id)
+        data = await get_user_data(message.from_user.id)
     
     await message.answer(f"👤 **ПРОФИЛЬ**\n\n"
                          f"💰 Баланс: {data['balance']} ⭐\n"
@@ -291,44 +297,74 @@ async def profile_handler(message: types.Message):
 
 @dp.message(F.text == "🎁 Бонус")
 async def daily_bonus(message: types.Message):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
-        )
     user_id = message.from_user.id
-    if not await is_subscribed(user_id): return await message.answer("❌ Сначала подпишись на канал!")
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id): 
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start", 
+            parse_mode="Markdown"
+        )
+    # -------------------------
     
     data = await get_user_data(user_id)
-    # Исправляем чтение времени
-    last_bonus_str = data['last_bonus']
-    last_bonus_time = datetime.strptime(last_bonus_str, '%Y-%m-%d %H:%M:%S')
+    
+    # Исправляем чтение времени (проверяем, что дата в БД не пустая)
+    last_bonus_str = data.get('last_bonus')
+    if not last_bonus_str:
+        # Если бонуса еще никогда не было, ставим дату из прошлого
+        last_bonus_time = datetime.now() - timedelta(hours=25)
+    else:
+        last_bonus_time = datetime.strptime(last_bonus_str, '%Y-%m-%d %H:%M:%S')
 
     if datetime.now() - last_bonus_time >= timedelta(hours=24):
         new_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE users SET energy = energy + 1, last_bonus = ? WHERE user_id = ?", (new_time, user_id))
+            await db.execute(
+                "UPDATE users SET energy = energy + 1, last_bonus = ? WHERE user_id = ?", 
+                (new_time, user_id)
+            )
             await db.commit()
         await message.answer("🎁 Вы получили бонус: **+1 ⚡ Энергии**!", parse_mode="Markdown")
     else:
         delta = (last_bonus_time + timedelta(hours=24)) - datetime.now()
         hours, remainder = divmod(int(delta.total_seconds()), 3600)
         minutes, _ = divmod(remainder, 60)
-        await message.answer(f"⏳ Бонус будет доступен через **{hours}ч. {minutes}м.**", parse_mode="Markdown")
+        await message.answer(
+            f"⏳ Бонус будет доступен через **{hours}ч. {minutes}м.**", 
+            parse_mode="Markdown"
+        )
 
 @dp.message(F.text == "💎 Вывод")
 async def withdraw_handler(message: types.Message):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
+    user_id = message.from_user.id
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start",
+            parse_mode="Markdown"
         )
-    data = await get_user_data(message.from_user.id)
+    # -------------------------
+
+    data = await get_user_data(user_id)
     balance = data['balance']
+    
     if balance >= 30:
-        await message.answer(f"💎 На вашем балансе {balance} ⭐\n\nДля вывода напишите сумму вывода и ожидайте поступления средств")
+        await message.answer(
+            f"💎 На вашем балансе **{balance} ⭐**\n\n"
+            "Для вывода напишите сумму вывода и ожидайте поступления средств на ваш баланс Telegram Stars.",
+            parse_mode="Markdown"
+        )
     else:
-        await message.answer(f"❌ Недостаточно средств.\nМинимум: **30 ⭐**\nВаш баланс: **{balance} ⭐**", parse_mode="Markdown")
+        await message.answer(
+            f"❌ Недостаточно средств.\n"
+            f"Минимум для вывода: **30 ⭐**\n"
+            f"Ваш баланс: **{balance} ⭐**", 
+            parse_mode="Markdown"
+        )
 
 @dp.message(F.text.in_(["🎰 ИГРАТЬ (Рулетка)", "/play", "/dice"]))
 async def play_game(message: types.Message):
@@ -381,19 +417,19 @@ async def play_game(message: types.Message):
     # 7. Логика результата
     # Значения кубика 1, 22, 43, 64 — это три семерки (джекпот) в анимации Telegram
     if msg.dice.value in [1, 22, 43, 64]:
-        win = random.randint(1, 15) 
+        win = random.randint(1, 10) 
         quote = random.choice(win_quotes)
         async with aiosqlite.connect(DB_NAME) as db:
             await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (win, user_id))
             await db.commit()
         
         # Ответ при победе
-        await asyncio.sleep(2.5) # Ждем, пока анимация докрутится
+        await asyncio.sleep(1.5) # Ждем, пока анимация докрутится
         await message.reply(f"🏆 Юзер @{message.from_user.username} выиграл {win} ⭐!", parse_mode="HTML")
     
     else:
         # Ответ при проигрыше
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(1.5)
         # Здесь мы НЕ используем переменную win, чтобы не было путаницы
         await message.reply(f"❌ Юзер @{message.from_user.username} ничего не выиграл. Попробуй еще раз!")
 
@@ -536,19 +572,49 @@ async def bonus_in_discussion(message: types.Message):
     
 @dp.message(F.text == "📊 Статистика")
 async def stats_handler(message: types.Message):
-    if not await is_subscribed(callback.from_user.id):
-        return await callback.answer(
-            "❌ Профиль доступен только подписчикам! Подпишитесь в @ВашБот", 
-            show_alert=True
+    user_id = message.from_user.id
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start",
+            parse_mode="Markdown"
         )
+    # -------------------------
+
     users, won = await get_global_stats()
-    await message.answer(f"📊 **СТАТИСТИКА БОТА**\n\n👥 Игроков: {users}\n💰 Выиграно всего: {won} ⭐\n✅ Выплаты активны!", parse_mode="Markdown")
+    await message.answer(
+        f"📊 **СТАТИСТИКА БОТА**\n\n"
+        f"👥 Всего игроков: {users}\n"
+        f"💰 Выиграно за всё время: {won} ⭐\n\n"
+        f"✅ Выплаты работают в штатном режиме!", 
+        parse_mode="Markdown"
+    )
 
 @dp.message(F.text == "👥 Рефералы")
 async def ref_handler(message: types.Message):
+    user_id = message.from_user.id
+    
+    # --- ПРОВЕРКА ПОДПИСКИ ---
+    if not await is_subscribed(user_id):
+        return await message.answer(
+            "❌ Доступ ограничен!\n\n"
+            "Подробнее — /start",
+            parse_mode="Markdown"
+        )
+    # -------------------------
+
     me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start={message.from_user.id}"
-    await message.answer(f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\nПриглашай друзей и получай **+5 ⚡** за каждого!\n\n🔗 Твоя ссылка:\n`{link}`", parse_mode="Markdown")
+    link = f"https://t.me/{me.username}?start={user_id}"
+    
+    await message.answer(
+        f"👥 **РЕФЕРАЛЬНАЯ СИСТЕМА**\n\n"
+        f"Приглашай друзей и получай **+5 ⚡ Энергии** за каждого приглашенного!\n\n"
+        f"🔗 **Твоя ссылка для приглашения:**\n"
+        f"`{link}`", 
+        parse_mode="Markdown"
+    )
 
 # Состояния для админки
 class AdminStates(StatesGroup):
