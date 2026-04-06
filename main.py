@@ -311,7 +311,7 @@ async def daily_bonus(message: types.Message):
     data = await get_user_data(user_id)
     
     # Исправляем чтение времени (проверяем, что дата в БД не пустая)
-    last_bonus_str = data.get('last_bonus')
+    last_bonus_str = data['last_bonus']
     if not last_bonus_str:
         # Если бонуса еще никогда не было, ставим дату из прошлого
         last_bonus_time = datetime.now() - timedelta(hours=25)
