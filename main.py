@@ -655,44 +655,6 @@ async def ref_handler(message: types.Message):
         parse_mode="Markdown"
     )
 
-# --- БОНУС В ЧАТЕ (СТАВИТЬ В САМЫЙ НИЗ) ---
-@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
-async def chat_activity_bonus(message: types.Message):
-    # 1. Сразу отсекаем команды, ботов и пустые сообщения
-    if not message.text or message.text.startswith("/") or message.from_user.is_bot:
-        return
-
-    # 2. ПРОВЕРКА ШАНСА (Сначала проверяем шанс, чтобы не нагружать бота)
-    # 0.05 — это 5% шанс. Если бот пишет слишком часто, поставь 0.01 (1%)
-    if random.random() > 0.05: 
-        return # Если шанс не выпал, просто выходим и НИЧЕГО не пишем
-
-    # 3. Если шанс ВЫПАЛ, тогда работаем с базой
-    user_id = message.from_user.id
-    
-    try:
-        data = await get_user_data(user_id)
-        if not data:
-            await add_user(user_id)
-
-        # Начисляем 3 энергии
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute(
-                "UPDATE users SET energy = energy + 3 WHERE user_id = ?", 
-                (user_id,)
-            )
-            await db.commit()
-
-        # 4. Отвечаем пользователю
-        await message.reply(
-            "🔥 **Рандомный бонус!**\n"
-            "За твою активность в чате ты получаешь **+3 ⚡ Энергии**.\n"
-            "Проверь баланс в боте!", 
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Ошибка в chat_activity_bonus: {e}")
-    
 # Состояния для админки
 class AdminStates(StatesGroup):
     waiting_for_broadcast_text = State()
