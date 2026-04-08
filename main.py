@@ -655,18 +655,22 @@ async def ref_handler(message: types.Message):
         parse_mode="Markdown"
     )
 
-# --- БОНУС В ЧАТЕ (СТАВИТЬ В САМЫЙ НИЗ ХЕНДЛЕРОВ) ---
+# --- БОНУС В ЧАТЕ (СТАВИТЬ В САМЫЙ НИЗ) ---
 @dp.message(F.chat.id == DISCUSSION_GROUP_ID)
 async def chat_activity_bonus(message: types.Message):
-    # Если это команда (начинается с /) или сообщение от бота — выходим
+    # 1. Сразу отсекаем команды, ботов и пустые сообщения
     if not message.text or message.text.startswith("/") or message.from_user.is_bot:
         return
 
-    # Розыгрыш шанса
-    if random.random() < CHANCE_TO_WIN:
-        user_id = message.from_user.id
-        
-        # Проверяем/добавляем юзера
+    # 2. ПРОВЕРКА ШАНСА (Сначала проверяем шанс, чтобы не нагружать бота)
+    # 0.05 — это 5% шанс. Если бот пишет слишком часто, поставь 0.01 (1%)
+    if random.random() > 0.05: 
+        return # Если шанс не выпал, просто выходим и НИЧЕГО не пишем
+
+    # 3. Если шанс ВЫПАЛ, тогда работаем с базой
+    user_id = message.from_user.id
+    
+    try:
         data = await get_user_data(user_id)
         if not data:
             await add_user(user_id)
@@ -679,15 +683,15 @@ async def chat_activity_bonus(message: types.Message):
             )
             await db.commit()
 
-        try:
-            await message.reply(
-                "🔥 **Спасибо за активность в нашем чате!**\n"
-                f"За активность в чате тебе начислено **1 ⚡ Энергия**.\n"
-                "Проверь баланс в боте!", 
-                parse_mode="Markdown"
-            )
-        except:
-            pass
+        # 4. Отвечаем пользователю
+        await message.reply(
+            "🔥 **Рандомный бонус!**\n"
+            "За твою активность в чате ты получаешь **+3 ⚡ Энергии**.\n"
+            "Проверь баланс в боте!", 
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Ошибка в chat_activity_bonus: {e}")
     
 # Состояния для админки
 class AdminStates(StatesGroup):
