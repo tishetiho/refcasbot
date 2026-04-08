@@ -302,39 +302,75 @@ async def daily_bonus(message: types.Message):
     # --- ПРОВЕРКА ПОДПИСКИ ---
     if not await is_subscribed(user_id): 
         return await message.answer(
-            "❌ Доступ ограничен!\n\n"
-            "Подробнее — /start", 
+            "❌ **Доступ ограничен!**\n\n"
+            "Чтобы забирать ежедневный бонус, пожалуйста, подпишитесь на наши каналы из /start", 
             parse_mode="Markdown"
         )
-    # -------------------------
     
     data = await get_user_data(user_id)
     
-    # Исправляем чтение времени (проверяем, что дата в БД не пустая)
+    # Проверка КД (24 часа)
     last_bonus_str = data['last_bonus']
     if not last_bonus_str:
-        # Если бонуса еще никогда не было, ставим дату из прошлого
         last_bonus_time = datetime.now() - timedelta(hours=25)
     else:
         last_bonus_time = datetime.strptime(last_bonus_str, '%Y-%m-%d %H:%M:%S')
 
-    if datetime.now() - last_bonus_time >= timedelta(hours=24):
-        new_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute(
-                "UPDATE users SET energy = energy + 1, last_bonus = ? WHERE user_id = ?", 
-                (new_time, user_id)
-            )
-            await db.commit()
-        await message.answer("🎁 Вы получили бонус: +1 ⚡ энергия!", parse_mode="Markdown")
-    else:
+    if datetime.now() - last_bonus_time < timedelta(hours=24):
         delta = (last_bonus_time + timedelta(hours=24)) - datetime.now()
         hours, remainder = divmod(int(delta.total_seconds()), 3600)
         minutes, _ = divmod(remainder, 60)
-        await message.answer(
-            f"⏳ Бонус будет доступен через {hours}ч. {minutes}м.", 
+        return await message.answer(
+            f"⏳ Бонус будет доступен через **{hours}ч. {minutes}м.**", 
             parse_mode="Markdown"
         )
+
+    # --- ЛОГИКА ПРОВЕРКИ НИКА И ОПИСАНИЯ ---
+    tag = "@luudorobot"
+    bio_text = "Выбивай 777 и забирай мишку — @luudorobot"
+    
+    reward = 0
+    # 1. Проверяем ник (имя + фамилия)
+    user_full_name = message.from_user.full_name
+    has_tag_in_name = tag in user_full_name
+
+    # 2. Проверяем описание (BIO)
+    # В message.from_user описания нет, нужно запрашивать полный объект чата
+    try:
+        full_user_info = await bot.get_chat(user_id)
+        user_bio = full_user_info.bio if full_user_info.bio else ""
+    except:
+        user_bio = ""
+    
+    has_bio = bio_text in user_bio
+
+    # Определяем размер награды
+    if has_tag_in_name and has_bio:
+        reward = 2
+        result_text = f"✅ Вы получили максимальный бонус: **+{reward} ⚡ Энергии**!"
+    elif has_tag_in_name:
+        reward = 1
+        result_text = f"✅ Вы получили бонус за тег в нике: **+{reward} ⚡ Энергия**!"
+    else:
+        # Если ничего не соблюдено - выдаем инструкцию и НЕ обновляем время бонуса
+        return await message.answer(
+            "🎁 **АКЦИЯ: Увеличь свой бонус!**\n\n"
+            f"1. Добавь `{tag}` в своё имя в Telegram — получишь **+1 ⚡**\n"
+            f"2. Добавь в описание (BIO) фразу:\n`{bio_text}` — получишь еще **+1 ⚡**\n\n"
+            "После того как изменишь профиль, жми кнопку снова!",
+            parse_mode="Markdown"
+        )
+
+    # Обновляем базу данных только если условия выполнены
+    new_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE users SET energy = energy + ?, last_bonus = ? WHERE user_id = ?", 
+            (reward, new_time, user_id)
+        )
+        await db.commit()
+        
+    await message.answer(result_text, parse_mode="Markdown")
 
 @dp.message(F.text == "💎 Вывод")
 async def withdraw_handler(message: types.Message):
