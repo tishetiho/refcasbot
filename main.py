@@ -400,7 +400,7 @@ async def chat_activity_bonus(message: types.Message):
         try:
             await message.reply(
                 "🔥 **Ого! Рандомный бонус!**\n"
-                "За твою активность в чате ты получаешь **+3 ⚡ Энергии**.\n"
+                "За твою активность в чате ты получаешь **1 ⚡ Энергию**.\n"
                 "Проверь баланс в @luudorobot", 
                 parse_mode="Markdown"
             )
