@@ -374,38 +374,6 @@ async def daily_bonus(message: types.Message):
     await message.answer(result_text, parse_mode="Markdown")
 
 @dp.message(F.chat.id == DISCUSSION_GROUP_ID)
-async def chat_activity_bonus(message: types.Message):
-    # Игнорируем команды и ботов
-    if message.text and message.text.startswith("/") or message.from_user.is_bot:
-        return
-
-    # Розыгрыш шанса
-    if random.random() < CHANCE_TO_WIN:
-        user_id = message.from_user.id
-        
-        # Сначала проверяем, есть ли юзер в базе
-        data = await get_user_data(user_id)
-        if not data:
-            await add_user(user_id)
-
-        # Начисляем 3 энергии
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute(
-                "UPDATE users SET energy = energy + 3 WHERE user_id = ?", 
-                (user_id,)
-            )
-            await db.commit()
-
-        # Поздравляем пользователя (можно сделать через reply, чтобы он заметил)
-        try:
-            await message.reply(
-                "🔥 **Ого! Рандомный бонус!**\n"
-                "За твою активность в чате ты получаешь **1 ⚡ Энергию**.\n"
-                "Проверь баланс в @luudorobot", 
-                parse_mode="Markdown"
-            )
-        except:
-            pass
             
 @dp.message(F.text == "💎 Вывод")
 async def withdraw_handler(message: types.Message):
@@ -687,6 +655,40 @@ async def ref_handler(message: types.Message):
         parse_mode="Markdown"
     )
 
+# --- БОНУС В ЧАТЕ (СТАВИТЬ В САМЫЙ НИЗ ХЕНДЛЕРОВ) ---
+@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
+async def chat_activity_bonus(message: types.Message):
+    # Если это команда (начинается с /) или сообщение от бота — выходим
+    if not message.text or message.text.startswith("/") or message.from_user.is_bot:
+        return
+
+    # Розыгрыш шанса
+    if random.random() < CHANCE_TO_WIN:
+        user_id = message.from_user.id
+        
+        # Проверяем/добавляем юзера
+        data = await get_user_data(user_id)
+        if not data:
+            await add_user(user_id)
+
+        # Начисляем 3 энергии
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute(
+                "UPDATE users SET energy = energy + 3 WHERE user_id = ?", 
+                (user_id,)
+            )
+            await db.commit()
+
+        try:
+            await message.reply(
+                "🔥 **Рандомный бонус!**\n"
+                f"За активность в чате тебе начислено **+3 ⚡ Энергии**.\n"
+                "Проверь баланс в боте!", 
+                parse_mode="Markdown"
+            )
+        except:
+            pass
+    
 # Состояния для админки
 class AdminStates(StatesGroup):
     waiting_for_broadcast_text = State()
