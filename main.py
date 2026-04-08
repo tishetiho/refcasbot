@@ -354,10 +354,10 @@ async def daily_bonus(message: types.Message):
     else:
         # Если ничего не соблюдено - выдаем инструкцию и НЕ обновляем время бонуса
         return await message.answer(
-            "🎁 **АКЦИЯ: Увеличь свой бонус!**\n\n"
+            "🌹 **Как получить бонус:**\n\n"
             f"1. Добавь `{tag}` в своё имя в Telegram — получишь **+1 ⚡**\n"
             f"2. Добавь в описание (BIO) фразу:\n`{bio_text}` — получишь еще **+1 ⚡**\n\n"
-            "После того как изменишь профиль, жми кнопку снова!",
+            "Как выполнишь условия, жми кнопку снова!",
             parse_mode="Markdown"
         )
 
@@ -560,7 +560,7 @@ async def accept_duel(message: types.Message):
             loser_id = acceptor_id if val1 > val2 else challenger_id
             
             # Твоя комиссия 10% (опционально)
-            prize = int(bet * 0.9) 
+            prize = int(bet * 1) 
             
             # Обновляем балансы
             await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (prize, winner_id))
