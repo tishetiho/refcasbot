@@ -372,36 +372,33 @@ async def daily_bonus(message: types.Message):
         await db.commit()
         
     await message.answer(result_text, parse_mode="Markdown")
-
-@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
             
-@dp.message(F.text == "💎 Вывод")
+@dp.message(F.text == "💎 Вывод", F.chat.type == "private") # Добавили проверку на личку
 async def withdraw_handler(message: types.Message):
     user_id = message.from_user.id
     
-    # --- ПРОВЕРКА ПОДПИСКИ ---
+    # ПРОВЕРКА ПОДПИСКИ
     if not await is_subscribed(user_id):
         return await message.answer(
-            "❌ Доступ ограничен!\n\n"
-            "Подробнее — /start",
+            "❌ **Доступ к выводу ограничен!**\n\n"
+            "Чтобы выводить заработанные ⭐, пожалуйста, подпишитесь на наши каналы из /start",
             parse_mode="Markdown"
         )
-    # -------------------------
 
     data = await get_user_data(user_id)
     balance = data['balance']
     
     if balance >= 30:
         await message.answer(
-            f"💎 На вашем балансе {balance} ⭐\n\n"
+            f"💎 На вашем балансе **{balance} ⭐**\n\n"
             "Для вывода напишите сумму вывода и ожидайте поступления средств на ваш баланс Telegram Stars.",
             parse_mode="Markdown"
         )
     else:
         await message.answer(
             f"❌ Недостаточно средств.\n"
-            f"Минимум для вывода: 30 ⭐\n"
-            f"Ваш баланс: {balance} ⭐", 
+            f"Минимум для вывода: **30 ⭐**\n"
+            f"Ваш баланс: **{balance} ⭐**", 
             parse_mode="Markdown"
         )
 
@@ -1453,6 +1450,44 @@ async def inline_check_handler(inline_query: types.InlineQuery):
     ]
     
     await inline_query.answer(results, cache_time=1, is_personal=True)
+
+# --- БОНУС В ЧАТЕ (СТРОГО В САМОМ КОНЦЕ ФАЙЛА) ---
+@dp.message(F.chat.id == DISCUSSION_GROUP_ID)
+async def chat_activity_bonus(message: types.Message):
+    # 1. Игнорируем команды, ботов и пустые сообщения
+    if not message.text or message.text.startswith("/") or message.from_user.is_bot:
+        return
+
+    # 2. ПРОВЕРКА ШАНСА
+    # Ставим 3% (0.03), чтобы не было флуда. Если выпало больше — выходим.
+    if random.random() > 0.03: 
+        return 
+
+    # 3. Если шанс выпал — начисляем
+    user_id = message.from_user.id
+    
+    try:
+        data = await get_user_data(user_id)
+        if not data:
+            await add_user(user_id)
+
+        # Начисляем 3 энергии
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute(
+                "UPDATE users SET energy = energy + 3 WHERE user_id = ?", 
+                (user_id,)
+            )
+            await db.commit()
+
+        # 4. Отвечаем КРАТКО, чтобы не мешать общению
+        await message.reply(
+            "🎁 **Рандомный бонус за активность!**\n"
+            "Тебе начислено **+3 ⚡ Энергии**.\n"
+            "Продолжай общаться!", 
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Ошибка в чат-бонусе: {e}")
     
 # Регистрация мидлвари для всех сообщений
 dp.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.6))
