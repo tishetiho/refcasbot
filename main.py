@@ -23,6 +23,7 @@ ADMIN_ID = 5078764886
 CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove", "name": "ЛУДО ДВИЖ"},
     {"id": -1003674572550, "url": "https://t.me/banknotagifts", "name": "Pepe | NFT"},
+    {"id": -1003801985427, "url": "https://t.me/getratsup", "name": "BZX stars"},
     ]
 FISH_TYPES = {
     "boot": {"name": "Старый башмак 👞", "price": 0, "chance": 0.75},
