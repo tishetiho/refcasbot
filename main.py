@@ -42,6 +42,11 @@ dp = Dispatcher()
 # --- БАЗА ДАННЫХ (С проверкой структуры) ---
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute('''CREATE TABLE IF NOT EXISTS inventory (
+                    user_id INTEGER, 
+                    item_name TEXT, 
+                    count INTEGER DEFAULT 0,
+                    PRIMARY KEY (user_id, item_name))''')
         await db.execute('''CREATE TABLE IF NOT EXISTS knb_games 
                         (game_id TEXT PRIMARY KEY, creator_id INTEGER, joiner_id INTEGER, 
                         chat_id INTEGER, bet INTEGER, c_move TEXT, j_move TEXT, status TEXT)''')
