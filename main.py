@@ -729,9 +729,127 @@ class AdminStates(StatesGroup):
     waiting_for_sub_channel_id = State()
     waiting_for_sub_channel_url = State()
     waiting_for_sub_channel_name = State()
+    playing_crash = State()
 
 class UserStates(StatesGroup):
     waiting_for_promo_activation = State()
+
+    # --- ИГРА РАКЕТА (CRASH) ---
+
+@dp.message(F.text == "🚀 Ракета", F.chat.type == "private")
+async def crash_game_start(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    
+    # Проверка подписки
+    if not await is_subscribed(user_id):
+        return await message.answer("❌ Сначала подпишитесь на каналы!")
+
+    data = await get_user_data(user_id)
+    if data['energy'] < 1:
+        return await message.answer("🪫 Недостаточно энергии (нужно 1 ⚡)")
+
+    # Списываем энергию
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE users SET energy = energy - 1 WHERE user_id = ?", (user_id,))
+        # Считаем "активных" игроков (имитируем или берем реально тех, кто в игре)
+        # Для твоей логики: представим, что мы проверяем количество записей в таблице активных сессий
+        # Здесь для примера рандомная имитация "толпы" для теста алгоритма:
+        fake_players_count = random.randint(0, 5) 
+        await db.commit()
+
+    # --- ТВОЙ АЛГОРИТМ ШАНСОВ ---
+    if fake_players_count == 0:
+        crash_point = round(random.uniform(2.0, 12.0), 2)  # Одиночка: икс до 12
+    elif fake_players_count <= 2:
+        crash_point = round(random.uniform(1.2, 4.0), 2)   # 1-2 игрока: икс до 4
+    else:
+        crash_point = round(random.uniform(1.05, 1.6), 2)  # Толпа: быстрый взрыв
+
+    # Начальное сообщение
+    msg = await message.answer(
+        f"🚀 **РАКЕТА ГОТОВИТСЯ К ВЗЛЕТУ!**\n\n"
+        f"📈 Множитель: **1.00x**\n"
+        f"👥 Игроков в раунде: {fake_players_count + 1}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardBuilder().row(
+            types.InlineKeyboardButton(text="💰 ЗАБРАТЬ", callback_data="crash_cashout")
+        ).as_markup()
+    )
+
+    # Сохраняем данные игры в состояние FSM
+    await state.set_state(UserStates.playing_crash)
+    await state.update_data(crash_point=crash_point, current_x=1.0, active=True)
+
+    current_x = 1.0
+    
+    # Цикл полета
+    while current_x < crash_point:
+        await asyncio.sleep(0.7) # Скорость обновления
+        
+        # Проверяем, не нажал ли юзер "Забрать" (состояние сбросится)
+        state_data = await state.get_data()
+        if not state_data.get("active"):
+            return # Выходим из цикла, если игрок забрал деньги
+
+        # Увеличиваем Икс (чем выше, тем быстрее растет)
+        current_x = round(current_x + random.uniform(0.05, 0.2), 2)
+        
+        if current_x >= crash_point:
+            break
+
+        await state.update_data(current_x=current_x)
+        
+        try:
+            await msg.edit_text(
+                f"🚀 **ПОЛЕТ НОРМАЛЬНЫЙ!**\n\n"
+                f"📈 Множитель: `{current_x}x`\n"
+                f"➖➖➖➖➖➖\n"
+                f"Жми кнопку, пока не взорвалось!",
+                parse_mode="Markdown",
+                reply_markup=msg.reply_markup
+            )
+        except:
+            pass
+
+    # Если цикл закончился и флаг active все еще True — значит КРАШ
+    final_data = await state.get_data()
+    if final_data.get("active"):
+        await state.clear()
+        await msg.edit_text(
+            f"💥 **БА-БА-БАХ!**\n\n"
+            f"Ракета взорвалась на коэффиценте `{crash_point}x`\n"
+            f"Вы потеряли 1 ⚡",
+            parse_mode="Markdown"
+        )
+
+# --- ОБРАБОТКА КНОПКИ "ЗАБРАТЬ" ---
+
+@dp.callback_query(F.data == "crash_cashout")
+async def process_crash_cashout(callback: types.CallbackQuery, state: FSMContext):
+    state_data = await state.get_data()
+    
+    if not state_data.get("active"):
+        return await callback.answer("Игра уже завершена!", show_alert=True)
+
+    current_x = state_data.get("current_x")
+    user_id = callback.from_user.id
+    win_amount = round(current_x * 1, 2) # 1 — это цена входа (энергия), переводим в звезды
+
+    # Останавливаем игру
+    await state.update_data(active=False)
+    await state.clear()
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (win_amount, user_id))
+        await db.commit()
+
+    await callback.message.edit_text(
+        f"💰 **УСПЕШНЫЙ ВЫХОД!**\n\n"
+        f"Вы успели забрать: `{current_x}x`\n"
+        f"Награда: **+{win_amount} ⭐**",
+        parse_mode="Markdown"
+    )
+    await callback.answer(f"Победа! +{win_amount} ⭐")
 
 @dp.callback_query(F.data == "admin_add_task", F.from_user.id == ADMIN_ID)
 async def add_task_start(callback: types.CallbackQuery, state: FSMContext):
