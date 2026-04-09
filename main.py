@@ -1451,18 +1451,19 @@ async def inline_check_handler(inline_query: types.InlineQuery):
     
     await inline_query.answer(results, cache_time=1, is_personal=True)
 
-# --- БОНУС В ЧАТЕ (СТРОГО В САМОМ КОНЦЕ ФАЙЛА) ---
 @dp.message(F.chat.id == DISCUSSION_GROUP_ID)
 async def chat_activity_bonus(message: types.Message):
-    # 1. Игнорируем команды, ботов и пустые сообщения
-    if not message.text or message.text.startswith("/") or message.from_user.is_bot:
+    # Игнорируем входы в группу, выходы и прочие сервисные сообщения
+    if not message.text:
+        return
+        
+    if message.text.startswith("/") or message.from_user.is_bot:
         return
 
-    # 2. ПРОВЕРКА ШАНСА
-    # Ставим 3% (0.03), чтобы не было флуда. Если выпало больше — выходим.
-    if random.random() > 0.03: 
-        return 
-
+    # Шанс 5%
+    if random.random() > CHANCE_TO_WIN:
+        return
+        
     # 3. Если шанс выпал — начисляем
     user_id = message.from_user.id
     
