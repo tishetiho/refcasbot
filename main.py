@@ -25,11 +25,11 @@ CHANNELS = [
     {"id": -1003674572550, "url": "https://t.me/banknotagifts", "name": "Pepe | NFT"},
     ]
 FISH_TYPES = {
-    "boot": {"name": "Старый башмак 👞", "price": 0, "chance": 0.6},
-    "common": {"name": "Плотва 🐟", "price": 0.5, "chance": 0.2},
-    "rare": {"name": "Окунь 🐠", "price": 1, "chance": 0.15},
-    "epic": {"name": "Щука 🐊", "price": 2.5, "chance": 0.03},
-    "legendary": {"name": "Золотая рыбка 👑", "price": 5.0, "chance": 0.02}
+    "boot": {"name": "Старый башмак 👞", "price": 0, "chance": 0.95},
+    "common": {"name": "Плотва 🐟", "price": 0.5, "chance": 0.03},
+    "rare": {"name": "Окунь 🐠", "price": 1, "chance": 0.015},
+    "epic": {"name": "Щука 🐊", "price": 2.5, "chance": 0.004},
+    "legendary": {"name": "Золотая рыбка 👑", "price": 5.0, "chance": 0.001}
 }
 KNB_TIMEOUT = 120  # 2 минуты на ход
 KNB_COMMISSION = 0.05 # 5% комиссия
