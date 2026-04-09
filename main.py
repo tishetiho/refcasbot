@@ -24,6 +24,13 @@ CHANNELS = [
     {"id": -1003884251721, "url": "https://t.me/ludomove", "name": "ЛУДО ДВИЖ"},
     {"id": -1003674572550, "url": "https://t.me/banknotagifts", "name": "Pepe | NFT"},
     ]
+FISH_TYPES = {
+    "boot": {"name": "Старый башмак 👞", "price": 0, "chance": 0.6},
+    "common": {"name": "Плотва 🐟", "price": 0.5, "chance": 0.2},
+    "rare": {"name": "Окунь 🐠", "price": 1, "chance": 0.15},
+    "epic": {"name": "Щука 🐊", "price": 2.5, "chance": 0.03},
+    "legendary": {"name": "Золотая рыбка 👑", "price": 5.0, "chance": 0.02}
+}
 KNB_TIMEOUT = 120  # 2 минуты на ход
 KNB_COMMISSION = 0.05 # 5% комиссия
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -188,10 +195,10 @@ class ThrottlingMiddleware(BaseMiddleware):
 # --- МЕНЮ ---
 def main_menu_kb():
     kb = [
-        [types.KeyboardButton(text="🎰 ИГРАТЬ (Рулетка)"), types.KeyboardButton(text="📜 Задания")],
+        [types.KeyboardButton(text="🎰 ИГРАТЬ (Рулетка)"), types.KeyboardButton(text="🎣 Рыбалка")],
         [types.KeyboardButton(text="👤 Профиль"), types.KeyboardButton(text="🎁 Бонус")],
         [types.KeyboardButton(text="📊 Статистика"), types.KeyboardButton(text="👥 Рефералы")],
-        [types.KeyboardButton(text="🎫 Промокод"), types.KeyboardButton(text="💎 Вывод")]
+        [types.KeyboardButton(text="📜 Задания"), types.KeyboardButton(text="💎 Вывод")]
     ]
     return types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -469,6 +476,59 @@ async def play_game(message: types.Message):
         # Здесь мы НЕ используем переменную win, чтобы не было путаницы
         await message.reply(f"❌ Юзер @{message.from_user.username} ничего не выиграл. Попробуй еще раз!")
 
+@dp.message(F.text == "🎣 Рыбалка", F.chat.type == "private")
+async def start_fishing(message: types.Message):
+    user_id = message.from_user.id
+    
+    # Проверка подписки
+    if not await is_subscribed(user_id):
+        return await message.answer("❌ Сначала подпишитесь на каналы!")
+
+    data = await get_user_data(user_id)
+    if data['energy'] < 1:
+        return await message.answer("🪫 Недостаточно энергии! Нужно минимум **1 ⚡**", parse_mode="Markdown")
+
+    # Списываем 1 энергию сразу
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE users SET energy = energy - 1 WHERE user_id = ?", (user_id,))
+        await db.commit()
+
+    # Красивая анимация заброса
+    msg = await message.answer("🎣 Закидываем удочку... Ждём поклёвки...")
+    await asyncio.sleep(1.5)
+    await msg.edit_text("🌊 ⏳ . . .")
+    await asyncio.sleep(1.5)
+    await msg.edit_text("🌊 ⏳ 🐟 . .")
+    await asyncio.sleep(1.5)
+    await msg.edit_text("🎣 **ТЯНИ! ЧТО-ТО ЕСТЬ!**", parse_mode="Markdown")
+    await asyncio.sleep(1)
+
+    # Логика шансов (как в рулетке)
+    rand = random.random()
+    cumulative = 0
+    caught_item = FISH_TYPES["boot"] # По умолчанию мусор
+
+    for fish_id, info in FISH_TYPES.items():
+        cumulative += info["chance"]
+        if rand <= cumulative:
+            caught_item = info
+            break
+
+    # Сохраняем улов в инвентарь (или сразу продаем, если хочешь упростить)
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Для простоты в этом примере: сразу зачисляем ⭐ на баланс
+        await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", 
+                         (caught_item["price"], user_id))
+        await db.commit()
+
+    await msg.edit_text(
+        f"🎉 **Улов!**\n\n"
+        f"Вы поймали: {caught_item['name']}\n"
+        f"Награда: **+{caught_item['price']} ⭐**\n\n"
+        f"Баланс обновлен!", 
+        parse_mode="Markdown"
+    )
+    
 @dp.message(Command("top"))
 async def chat_top(message: types.Message):
     async with aiosqlite.connect(DB_NAME) as db:
